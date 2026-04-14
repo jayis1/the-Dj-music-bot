@@ -508,7 +508,7 @@ class Music(commands.Cog):
                 )
             )
 
-    async def play_next(self, ctx):
+    async def play_next(self, ctx, _skip_count=0):
         logging.info("play_next called.")
         queue = await self.get_queue(ctx.guild.id)
         if not queue.empty() and ctx.voice_client:
@@ -521,13 +521,35 @@ class Music(commands.Cog):
             # right now, right before playback. This keeps playlist
             # loading instant while ensuring reliable playback.
             if isinstance(data, PlaceholderTrack):
+                # Guard: if too many consecutive resolutions fail, stop
+                # to avoid infinite recursion / rate limiting
+                if _skip_count >= 5:
+                    logging.error(
+                        f"play_next: {_skip_count} consecutive resolution failures in "
+                        f"{ctx.guild.name}. Stopping — possible site block or auth issue."
+                    )
+                    channel = self.bot.get_channel(ctx.channel.id)
+                    if channel:
+                        await channel.send(
+                            embed=self.create_embed(
+                                "Playback Error",
+                                f"{config.ERROR_EMOJI} Multiple songs failed to resolve. "
+                                "YouTube may be blocking requests. Try `?fetch_and_set_cookies` "
+                                "or check your network.",
+                                discord.Color.red(),
+                            )
+                        )
+                    await self.bot.change_presence(activity=None)
+                    self._start_inactivity_timer(guild_id)
+                    return
+
                 resolve_url = data.webpage_url
                 if not resolve_url:
                     logging.error(
                         f"play_next: PlaceholderTrack has no webpage_url, skipping. Title: {data.title}"
                     )
-                    # Skip this broken entry and try the next one
-                    await self.play_next(ctx)
+                    await asyncio.sleep(1)
+                    await self.play_next(ctx, _skip_count=_skip_count + 1)
                     return
 
                 logging.info(
@@ -536,18 +558,27 @@ class Music(commands.Cog):
                 try:
                     resolved = await YTDLSource.resolve(resolve_url, loop=self.bot.loop)
                     data = resolved
+                    # Verify we actually got a usable stream URL
+                    if not data.url or data.url.startswith(
+                        "https://www.youtube.com/watch"
+                    ):
+                        logging.error(
+                            f"play_next: Resolution returned a webpage URL, not a stream. "
+                            f"Title: {data.title}, url: {data.url}"
+                        )
+                        await asyncio.sleep(2)
+                        await self.play_next(ctx, _skip_count=_skip_count + 1)
+                        return
                     logging.info(
                         f"play_next: Resolved PlaceholderTrack to '{data.title}' "
-                        f"(url={data.url[:80]}…)"
-                        if data.url
-                        else f"play_next: Resolved but no URL for '{data.title}'"
+                        f"(stream url ready)"
                     )
                 except Exception as e:
                     logging.error(
                         f"play_next: Failed to resolve PlaceholderTrack '{data.title}': {e}"
                     )
-                    # Skip this broken entry and try the next one
-                    await self.play_next(ctx)
+                    await asyncio.sleep(2)
+                    await self.play_next(ctx, _skip_count=_skip_count + 1)
                     return
 
             # ── DJ Mode: Speak an intro before the song ────────────

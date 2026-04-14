@@ -110,15 +110,32 @@ class PlaceholderTrack:
         self.url = None  # No stream URL yet — resolved at playback time
         self.duration = data.get("duration")
         self.thumbnail = data.get("thumbnail")
-        self.webpage_url = data.get("url") or data.get("webpage_url")
 
-        # Try to build a YouTube URL from the ID if we only have that
+        # yt-dlp extract_flat=True returns the video ID in the "url" field,
+        # NOT a full URL. e.g. data["url"] = "dQw4w9WgXcQ"
+        # We must detect this and build a real watch URL from the ID.
+        raw_url = data.get("url") or ""
         video_id = data.get("id")
-        if not self.webpage_url and video_id:
-            # heuristic: if extractor_key or ie_key mentions youtube
-            extractor = data.get("extractor_key") or data.get("ie_key") or ""
-            if "youtube" in extractor.lower() or len(video_id) == 11:
-                self.webpage_url = f"https://www.youtube.com/watch?v={video_id}"
+        extractor = (data.get("extractor_key") or data.get("ie_key") or "").lower()
+
+        if raw_url.startswith("http"):
+            # Already a full URL — use as-is
+            self.webpage_url = raw_url
+        elif video_id and ("youtube" in extractor or len(video_id) == 11):
+            # Bare YouTube video ID — build a proper watch URL
+            self.webpage_url = f"https://www.youtube.com/watch?v={video_id}"
+        elif data.get("webpage_url"):
+            # Fallback to webpage_url if available
+            self.webpage_url = data.get("webpage_url")
+        elif raw_url and video_id:
+            # Other extractors — try building from the base URL heuristically
+            self.webpage_url = f"https://www.youtube.com/watch?v={video_id}"
+        else:
+            self.webpage_url = None
+            logging.warning(
+                f"PlaceholderTrack: Cannot determine URL for '{self.title}' "
+                f"(id={video_id}, raw_url={raw_url!r})"
+            )
 
     @classmethod
     async def from_playlist_url(cls, url, *, loop=None, playlist_items=None):
