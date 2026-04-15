@@ -221,3 +221,19 @@ The DJ now has access to 172 completely unique built-in broadcast lines, up from
 
 **4. Enhanced DJ Lines Dashboard:**
 The `/dj-lines` page now includes a comprehensive Soundboard Tags reference card. Placeholders like `{title}` render as blue graphical badges, while `{sound:name}` tags render as purple interactive badges, giving users an immediate visual understanding of how the dynamic prompt generation works under the hood.
+
+---
+
+### `KeyError: 'sound'` on DJ Line Generation
+
+**Root Cause:**
+With the introduction of the `{sound:name}` dynamic tags to the built-in DJ lines (e.g. `{sound:airhorn}`), a new bug emerged. When `generate_intro()`, `generate_song_intro()`, or `generate_outro()` called Python's native `.format(title=..., greeting=...)` on a template containing a sound tag, the native `str.format()` engine interpreted `{sound:airhorn}` as a format field named "sound" with a format config of "airhorn". Since no keyword argument named "sound" was actually passed to `.format()`, the process threw a `KeyError: 'sound'`.
+
+**The Fix:**
+A new `_format_line(template, **kwargs)` wrapper function was implemented to safely isolate sound tags during formatting:
+1. It extracts all `{sound:...}` tags using a Regex findall (`re.findall`).
+2. It completely strips those tags from the template string so `.format()` never processes them.
+3. It performs the standard `.format(**kwargs)` variable replacement (e.g., substituting `{title}`).
+4. Finally, it re-appends the preserved `{sound:...}` tags onto the tail end of the newly formatted broadcast line.
+
+This ensures that format collisions no longer occur and the DJ correctly triggers the sound effects at the end of their introductory broadcast!

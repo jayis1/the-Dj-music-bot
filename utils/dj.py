@@ -12,6 +12,7 @@ import asyncio
 import logging
 import os
 import random
+import re
 import tempfile
 from datetime import datetime
 
@@ -357,6 +358,29 @@ CALLOUTS = [
 # ── Message Generation ─────────────────────────────────────────────
 
 
+def _format_line(template: str, **kwargs) -> str:
+    """Format a DJ line template, handling {sound:name} tags safely.
+
+    Python's str.format() treats {sound:name} as a format field and
+    raises KeyError. We extract sound tags first, format the rest,
+    then re-append the sound tags at the end.
+    """
+    tags = re.findall(r"\{sound:[^}]+\}", template)
+    # Remove sound tags so .format() doesn't choke on them
+    cleaned = re.sub(r"\s*\{sound:[^}]+\}\s*", " ", template).strip()
+    try:
+        result = cleaned.format(**kwargs)
+    except KeyError:
+        # Fallback: if any weird placeholder remains, just use it as-is
+        result = cleaned
+    # Re-append sound tags at the end
+    if tags:
+        # Normalize tags to have single spaces
+        tag_str = " ".join(tags)
+        result = result.rstrip() + " " + tag_str
+    return result
+
+
 def _pool(category: str) -> list[str]:
     """Return built-in + custom lines for a category, deduplicated."""
     from utils.custom_lines import load_custom_lines
@@ -391,8 +415,6 @@ def extract_sound_tags(text: str) -> tuple[str, list[str]]:
     Returns (cleaned_text, [sound_ids]).
     e.g. "In the mix! {sound:airhorn} {sound:club_hit}" → ("In the mix!", ["airhorn", "club_hit"])
     """
-    import re
-
     tags = re.findall(r"\{sound:([^}]+)\}", text)
     cleaned = re.sub(r"\s*\{sound:[^}]+\}\s*", " ", text).strip()
     # Build the sound_id with the right extension
@@ -413,11 +435,11 @@ def extract_sound_tags(text: str) -> tuple[str, list[str]]:
 def generate_intro(title: str, queue_size: int = 0) -> str:
     """Generate a DJ intro message before the first song of a session."""
     greeting = _time_greeting()
-    msg = random.choice(_pool("intros")).format(greeting=greeting, title=title)
+    msg = _format_line(random.choice(_pool("intros")), greeting=greeting, title=title)
 
     # 30% chance to prepend a station ID
     if random.random() < 0.30:
-        msg = random.choice(_pool("station_ids")) + " " + msg
+        msg = _format_line(random.choice(_pool("station_ids"))) + " " + msg
 
     return msg
 
@@ -428,16 +450,16 @@ def generate_song_intro(title: str, queue_size: int = 0) -> str:
 
     # Late night? Go mellow 40% of the time
     if tod in ("night", "late night") and random.random() < 0.40:
-        msg = random.choice(_pool("hype_intros")).format(title=title)
+        msg = _format_line(random.choice(_pool("hype_intros")), title=title)
     # 20% chance of a loud/hype intro
     elif random.random() < 0.20:
-        msg = random.choice(_pool("hype_intros_loud")).format(title=title)
+        msg = _format_line(random.choice(_pool("hype_intros_loud")), title=title)
     else:
-        msg = random.choice(_pool("hype_intros")).format(title=title)
+        msg = _format_line(random.choice(_pool("hype_intros")), title=title)
 
     # 15% chance to tack on a listener callout
     if random.random() < 0.15:
-        msg += " " + random.choice(_pool("callouts"))
+        msg += " " + _format_line(random.choice(_pool("callouts")))
 
     # Add queue banter if songs are lined up
     banter = _queue_banter(queue_size)
@@ -457,17 +479,23 @@ def generate_outro(
         # We know both songs — use a transition
         # Late night? Go mellow sometimes
         if tod in ("night", "late night") and random.random() < 0.35:
-            msg = random.choice(_pool("transitions_mellow")).format(
-                prev_title=title, next_title=next_title
+            msg = _format_line(
+                random.choice(_pool("transitions_mellow")),
+                prev_title=title,
+                next_title=next_title,
             )
         # 20% chance of a hype transition
         elif random.random() < 0.20:
-            msg = random.choice(_pool("transitions_hype")).format(
-                prev_title=title, next_title=next_title
+            msg = _format_line(
+                random.choice(_pool("transitions_hype")),
+                prev_title=title,
+                next_title=next_title,
             )
         else:
-            msg = random.choice(_pool("transitions")).format(
-                prev_title=title, next_title=next_title
+            msg = _format_line(
+                random.choice(_pool("transitions")),
+                prev_title=title,
+                next_title=next_title,
             )
 
         # 25% chance to tack on queue banter
@@ -478,18 +506,18 @@ def generate_outro(
 
     elif has_next:
         # Next track exists but we don't know its title
-        msg = random.choice(_pool("outros")).format(title=title)
+        msg = _format_line(random.choice(_pool("outros")), title=title)
         banter = _queue_banter(queue_size)
         if banter:
             msg += " " + banter
 
     else:
         # Last song — queue is empty after this
-        msg = random.choice(_pool("outros_final")).format(title=title)
+        msg = _format_line(random.choice(_pool("outros_final")), title=title)
 
     # 20% chance to prepend a station ID on the outro too
     if random.random() < 0.20:
-        msg = random.choice(_pool("station_ids")) + " " + msg
+        msg = _format_line(random.choice(_pool("station_ids"))) + " " + msg
 
     return msg
 
