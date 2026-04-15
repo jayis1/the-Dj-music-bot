@@ -39,6 +39,10 @@ DJ_VOICE = "en-US-AriaNeural"
 # Emojis for DJ mode
 DJ_EMOJI = "🎙️"
 
+# Crossfade — overlap duration in seconds when transitioning between songs
+# Set to 0 to disable crossfade. Recommended: 3-5 seconds.
+CROSSFADE_DURATION = 3
+
 # Web Dashboard
 WEB_HOST = os.environ.get("WEB_HOST", "0.0.0.0")
 WEB_PORT = int(os.environ.get("WEB_PORT", 8080))

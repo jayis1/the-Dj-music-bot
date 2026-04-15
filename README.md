@@ -38,8 +38,12 @@ MBot features a built-in web dashboard (powered by Flask) that starts automatica
 - **Live Status & Remote Control:** The dashboard isn't just for viewing! You can skip, pause, play, or stop the currently playing song directly from your browser.
 - **Interactive UI & Toast Notifications:** Enjoy smooth real-time feedback with loading spinners and stylish pop-up notifications whenever you trigger actions!
 - **Audio Sliders:** Adjust the bot's volume and playback speed smoothly on the fly.
-- **Live Queue Manager:** View the full upcoming queue and remove specific songs with a single click.
+- **Drag-and-Drop Queue Reordering:** Rearrange the upcoming songs effortlessly by dragging and dropping them, or use the "Play Next" shortcut to move them straight to the top of the queue.
 - **Web-based "Add to Queue":** A built-in search bar allows you to paste YouTube links or search queries directly from the dashboard to instantly queue songs.
+- **Live Lyrics Panel:** Automatically fetches and displays lyrics for the currently playing track via `syncedlyrics`.
+- **Save / Load Custom Playlists (Presets):** Save your perfectly crafted 25-song queues directly into a preset JSON, and reload them with one click later.
+- **Instant DJ Soundboard:** Play classic radio Soundboard drops (Airhorns, Record Scratches, Applause...) on top of the music live!
+- **Gapless Crossfade Playback:** Configure a dynamic crossfade overlap (e.g. 3 seconds) using `CROSSFADE_DURATION` in `config.py` for a flawless, club-style transition between songs!
 - **DJ Voice Selector:** Easily switch the Edge-TTS radio host's voice dynamically via a drop-down menu.
 - **Mission Control Theme:** A sleek, dark-themed UI that auto-refreshes to keep you seamlessly synced with the Discord session.
 

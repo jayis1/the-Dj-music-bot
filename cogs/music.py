@@ -1717,8 +1717,21 @@ class Music(commands.Cog):
 
             current_speed = self.playback_speed.get(guild_id, 1.0)
             player_options = FFMPEG_OPTIONS.copy()
+
+            # Build FFmpeg audio filter chain
+            audio_filters = []
+
+            # Speed filter
             if current_speed != 1.0:
-                player_options["options"] += f' -filter:a "atempo={current_speed}"'
+                audio_filters.append(f"atempo={current_speed}")
+
+            # Crossfade: fade in the first few seconds of a new song
+            crossfade = getattr(config, "CROSSFADE_DURATION", 0)
+            if crossfade > 0 and data.duration and data.duration > crossfade * 2:
+                audio_filters.append(f"afade=t=in:st=0:d={crossfade}")
+
+            if audio_filters:
+                player_options["options"] += f' -filter:a "{"+".join(audio_filters)}'
 
             source = discord.FFmpegPCMAudio(data.url, **player_options)
             player = discord.PCMVolumeTransformer(source)

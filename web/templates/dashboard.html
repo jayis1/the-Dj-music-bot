@@ -18,6 +18,27 @@
     </div>
 </div>
 
+<!-- ==================== SOUNDBOARD PANEL ==================== -->
+{% if sounds %}
+<div class="card" style="margin-bottom: 24px;">
+    <div class="card-header">
+        <h2><span class="icon">🎛️</span> Soundboard</h2>
+        <span style="font-size: 12px; color: var(--text-muted);">{{ sounds|length }} sounds loaded</span>
+    </div>
+    <div class="soundboard-grid">
+    {% for s in sounds %}
+        <button class="soundboard-btn" onclick="playSound('{{ s.id }}')" title="{{ s.name }}">
+            {{ s.name }}
+        </button>
+    {% endfor %}
+    </div>
+    <p style="font-size: 11px; color: var(--text-muted); margin-top: 8px;">
+        Drop .mp3 files in the <code>sounds/</code> folder to add more.
+    </p>
+</div>
+{% endif %}
+
+<!-- ==================== GUILD CARDS ==================== -->
 {% for g in guilds %}
 <div class="card guild-card" id="guild-{{ g.id }}" data-gid="{{ g.id }}">
     <!-- Guild header -->
@@ -122,19 +143,39 @@
                     ∞
                 {% endif %}
             </div>
+            <!-- Lyrics toggle button -->
+            <button class="btn" style="margin-top: 8px; font-size: 12px;" onclick="toggleLyrics('{{ g.id }}')">🎤 Lyrics</button>
+        </div>
+    </div>
+
+    <!-- Collapsible lyrics panel -->
+    <div id="lyrics-panel-{{ g.id }}" style="display: none; margin-top: 12px;">
+        <div style="background: var(--bg-primary); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                <h4 style="font-size: 13px; color: var(--text-secondary);">🎤 Lyrics</h4>
+                <button class="btn btn-icon" onclick="toggleLyrics('{{ g.id }}')" title="Close">✕</button>
+            </div>
+            <div id="lyrics-content-{{ g.id }}" style="font-size: 13px; color: var(--text-secondary); max-height: 300px; overflow-y: auto; white-space: pre-wrap; line-height: 1.8;">
+                Loading lyrics...
+            </div>
         </div>
     </div>
     {% endif %}
 
-    <!-- Queue panel -->
+    <!-- Queue panel (drag-and-drop with SortableJS) -->
     {% if g.queue_size > 0 %}
     <div style="margin-top: 16px;">
         <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
             <h4 style="font-size: 14px; color: var(--text-secondary);">📋 Up Next ({{ g.queue_size }})</h4>
+            <div style="display: flex; gap: 4px;">
+                <!-- Save as preset button -->
+                <button class="btn" style="font-size: 11px;" onclick="savePreset('{{ g.id }}')">💾 Save</button>
+            </div>
         </div>
         <div class="queue-list" id="queue-{{ g.id }}">
         {% for item in g.queue_items %}
-        <div class="queue-item">
+        <div class="queue-item" data-idx="{{ loop.index0 }}" style="cursor: grab;">
+            <span class="queue-drag">⠿</span>
             {% if item.thumbnail %}
             <img src="{{ item.thumbnail }}" alt="" class="queue-thumb">
             {% else %}
@@ -145,7 +186,7 @@
                 {% if item.duration %}<span class="queue-duration">{{ item.duration // 60 }}:{{ "%02d"|format(item.duration % 60) }}</span>{% endif %}
             </div>
             <div class="queue-actions">
-                <span class="queue-pos">{{ loop.index }}</span>
+                <button class="btn btn-icon" style="color: var(--accent);" onclick="playNextItem('{{ g.id }}', {{ loop.index0 }})" title="Play Next">⏫</button>
                 <button class="btn btn-icon btn-danger" onclick="removeFromQueue('{{ g.id }}', {{ loop.index0 }})" title="Remove">✕</button>
             </div>
         </div>
@@ -161,22 +202,30 @@
 </div>
 {% endfor %}
 
-<!-- Search / Add to Queue -->
+<!-- ==================== SEARCH / ADD TO QUEUE ==================== -->
 <div class="card" style="margin-top: 24px;">
     <h2 style="margin-bottom: 16px;">🔍 Add to Queue</h2>
-    <div id="search-bar">
-        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-            <select id="search-guild" style="background: var(--bg-card); border: 1px solid var(--border); color: var(--text-primary); padding: 8px 12px; border-radius: var(--radius); font-size: 13px; min-width: 160px;">
-                {% for g in guilds %}
-                {% if g.in_voice %}
-                <option value="{{ g.id }}">{{ g.name }}</option>
-                {% endif %}
-                {% endfor %}
-            </select>
-            <input type="text" id="search-input" placeholder="YouTube URL, playlist URL, or search terms..." style="flex: 1; min-width: 300px; background: var(--bg-card); border: 1px solid var(--border); color: var(--text-primary); padding: 8px 12px; border-radius: var(--radius); font-size: 13px;">
-            <button class="btn btn-primary" onclick="addToQueue()" id="search-btn">▶ Play</button>
-        </div>
+    <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+        <select id="search-guild" style="background: var(--bg-card); border: 1px solid var(--border); color: var(--text-primary); padding: 8px 12px; border-radius: var(--radius); font-size: 13px; min-width: 160px;">
+            {% for g in guilds %}
+            {% if g.in_voice %}
+            <option value="{{ g.id }}">{{ g.name }}</option>
+            {% endif %}
+            {% endfor %}
+        </select>
+        <input type="text" id="search-input" placeholder="YouTube URL, playlist URL, or search terms..." style="flex: 1; min-width: 300px; background: var(--bg-card); border: 1px solid var(--border); color: var(--text-primary); padding: 8px 12px; border-radius: var(--radius); font-size: 13px;">
+        <button class="btn btn-primary" onclick="addToQueue()" id="search-btn">▶ Play</button>
     </div>
+
+    <!-- Presets dropdown -->
+    {% if presets %}
+    <div style="margin-top: 16px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+        <span style="font-size: 12px; color: var(--text-muted);">💾 Presets:</span>
+        {% for p in presets %}
+        <span class="preset-chip" onclick="loadPreset('{{ p.name }}')">{{ p.name }} ({{ p.count }})</span>
+        {% endfor %}
+    </div>
+    {% endif %}
 </div>
 
 <p style="color: var(--text-muted); font-size: 12px; margin-top: 24px; text-align: center;">
@@ -184,7 +233,73 @@
     <a href="{{ url_for('dashboard') }}">Refresh now</a>
 </p>
 
+<!-- ==================== STYLES ==================== -->
 <style>
+/* Soundboard */
+.soundboard-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+.soundboard-btn {
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    padding: 10px 18px;
+    border-radius: var(--radius);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+.soundboard-btn:hover {
+    border-color: var(--purple);
+    background: rgba(168, 85, 247, 0.1);
+    color: var(--purple);
+    transform: scale(1.05);
+}
+.soundboard-btn:active {
+    transform: scale(0.95);
+    background: var(--purple);
+    color: white;
+}
+
+/* Queue drag handle */
+.queue-drag {
+    color: var(--text-muted);
+    font-size: 16px;
+    cursor: grab;
+    user-select: none;
+    flex-shrink: 0;
+    width: 16px;
+}
+.queue-item.dragging {
+    opacity: 0.4;
+    border-color: var(--accent);
+}
+.queue-item.drag-over {
+    border-top: 2px solid var(--accent);
+}
+
+/* Preset chips */
+.preset-chip {
+    display: inline-block;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    padding: 4px 12px;
+    border-radius: 16px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+.preset-chip:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: var(--accent-glow);
+}
+
+/* Voice select */
 .voice-select {
     background: var(--bg-card);
     border: 1px solid var(--border);
@@ -195,6 +310,8 @@
     margin-left: 8px;
     min-width: 200px;
 }
+
+/* Sliders */
 .slider {
     -webkit-appearance: none;
     width: 100%;
@@ -220,11 +337,13 @@
     cursor: pointer;
     border: none;
 }
+
+/* Queue */
 .queue-list { max-height: 400px; overflow-y: auto; }
 .queue-item {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
     padding: 8px 12px;
     border: 1px solid var(--border);
     border-radius: var(--radius);
@@ -255,29 +374,59 @@
 }
 .queue-duration { font-size: 11px; color: var(--text-muted); }
 .queue-actions { display: flex; align-items: center; gap: 4px; }
-.queue-pos {
-    font-size: 11px;
-    color: var(--text-muted);
-    width: 20px;
-    text-align: center;
+
+/* Responsive */
+@media (max-width: 768px) {
+    .soundboard-grid { gap: 4px; }
+    .soundboard-btn { padding: 8px 12px; font-size: 12px; }
 }
 </style>
 
+<!-- ==================== SCRIPTS ==================== -->
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
 <script>
-// ── Toast notifications ─────────────────────────────────
+// ── Toast ─────────────────────────────────────────────────
 function showToast(msg, type) {
     const t = document.getElementById('toast');
     t.textContent = msg;
     t.style.display = 'block';
     t.style.opacity = '1';
     t.style.background = type === 'error' ? 'var(--danger)' : 'var(--success)';
-    t.style.color = type === 'error' ? 'white' : 'white';
+    t.style.color = 'white';
     t.style.border = type === 'error' ? '1px solid var(--danger)' : '1px solid var(--success)';
     clearTimeout(t._timer);
     t._timer = setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.style.display = 'none', 300); }, 2500);
 }
 
-// ── Playback Controls ──────────────────────────────────
+// ── Soundboard ────────────────────────────────────────────
+let soundboardGuild = null;
+document.addEventListener('DOMContentLoaded', () => {
+    // Pick the first guild with a voice connection for soundboard
+    {% for g in guilds %}
+    {% if g.in_voice and soundboardGuild is none %}
+    soundboardGuild = '{{ g.id }}';
+    {% endif %}
+    {% endfor %}
+});
+
+async function playSound(soundId) {
+    if (!soundboardGuild) {
+        showToast('Bot is not in any voice channel', 'error');
+        return;
+    }
+    try {
+        const res = await fetch('/api/' + soundboardGuild + '/soundboard', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sound: soundId })
+        });
+        const data = await res.json();
+        if (data.ok) showToast('🔊 ' + soundId.replace(/\.\w+$/, ''), 'success');
+        else showToast(data.error || 'Sound failed', 'error');
+    } catch (e) { showToast('Sound failed: ' + e.message, 'error'); }
+}
+
+// ── Playback Controls ─────────────────────────────────────
 async function apiAction(btn, guildId, action) {
     btn.disabled = true;
     const origText = btn.textContent;
@@ -378,19 +527,116 @@ async function loadVoices(guildId, currentVoice) {
     }
 }
 
+// ── Queue: Remove, Play Next, Drag-and-Drop ────────────────
 async function removeFromQueue(guildId, index) {
     try {
         const res = await fetch('/api/' + guildId + '/queue/' + index, { method: 'DELETE' });
         const data = await res.json();
-        if (data.ok) {
-            showToast('Removed from queue', 'success');
-            setTimeout(() => location.reload(), 1000);
-        } else {
-            showToast(data.error || 'Remove failed', 'error');
-        }
+        if (data.ok) { showToast('Removed from queue', 'success'); setTimeout(() => location.reload(), 1000); }
+        else showToast(data.error || 'Remove failed', 'error');
     } catch (e) { showToast('Request failed: ' + e.message, 'error'); }
 }
 
+async function playNextItem(guildId, index) {
+    try {
+        const res = await fetch('/api/' + guildId + '/queue/play_next/' + index, { method: 'POST' });
+        const data = await res.json();
+        if (data.ok) { showToast('⏫ Moved to top', 'success'); setTimeout(() => location.reload(), 1000); }
+        else showToast(data.error || 'Move failed', 'error');
+    } catch (e) { showToast('Move failed: ' + e.message, 'error'); }
+}
+
+// Drag-and-drop with SortableJS
+document.addEventListener('DOMContentLoaded', () => {
+    {% for g in guilds %}
+    {% if g.queue_size > 0 %}
+    const ql{{ g.id }} = document.getElementById('queue-{{ g.id }}');
+    if (ql{{ g.id }} && typeof Sortable !== 'undefined') {
+        Sortable.create(ql{{ g.id }}, {
+            animation: 150,
+            handle: '.queue-drag',
+            ghostClass: 'dragging',
+            onEnd: function(evt) {
+                // Build the new order array from the DOM
+                const items = ql{{ g.id }}.querySelectorAll('.queue-item[data-idx]');
+                const order = Array.from(items).map(el => parseInt(el.dataset.idx));
+                fetch('/api/{{ g.id }}/queue/reorder', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ order: order })
+                }).then(r => r.json()).then(d => {
+                    if (d.ok) showToast('Queue reordered', 'success');
+                    else showToast(d.error || 'Reorder failed', 'error');
+                }).catch(e => showToast('Reorder failed', 'error'));
+            }
+        });
+    }
+    {% endif %}
+    {% endfor %}
+});
+
+// ── Lyrics ───────────────────────────────────────────────
+function toggleLyrics(guildId) {
+    const panel = document.getElementById('lyrics-panel-' + guildId);
+    if (!panel) return;
+    if (panel.style.display === 'none') {
+        panel.style.display = 'block';
+        fetch('/api/' + guildId + '/lyrics')
+            .then(r => r.json())
+            .then(data => {
+                const el = document.getElementById('lyrics-content-' + guildId);
+                if (data.lyrics) {
+                    el.textContent = data.lyrics;
+                } else {
+                    el.textContent = 'No lyrics found for "' + (data.title || 'this song') + '".';
+                }
+            })
+            .catch(e => {
+                document.getElementById('lyrics-content-' + guildId).textContent = 'Failed to fetch lyrics.';
+            });
+    } else {
+        panel.style.display = 'none';
+    }
+}
+
+// ── Presets ────────────────────────────────────────────────
+async function savePreset(guildId) {
+    const name = prompt('Save current queue as preset:\nEnter a name:');
+    if (!name || !name.trim()) return;
+    try {
+        const res = await fetch('/api/' + guildId + '/presets/save', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: name.trim() })
+        });
+        const data = await res.json();
+        if (data.ok) showToast('💾 Preset saved: ' + name.trim(), 'success');
+        else showToast(data.error || 'Save failed', 'error');
+    } catch (e) { showToast('Save failed: ' + e.message, 'error'); }
+}
+
+async function loadPreset(name) {
+    const guildSelect = document.getElementById('search-guild');
+    const guildId = guildSelect ? guildSelect.value : null;
+    if (!guildId) { showToast('Bot is not in any voice channel', 'error'); return; }
+    if (!confirm('Load preset "' + name + '" into the queue?')) return;
+    try {
+        const res = await fetch('/api/' + guildId + '/presets/load', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: name })
+        });
+        const data = await res.json();
+        if (data.ok) {
+            showToast('💾 Loaded preset: ' + name, 'success');
+            setTimeout(() => location.reload(), 2000);
+        } else {
+            showToast(data.error || 'Load failed', 'error');
+        }
+    } catch (e) { showToast('Load failed: ' + e.message, 'error'); }
+}
+
+// ── Search / Add to Queue ─────────────────────────────────
 async function addToQueue() {
     const guildSelect = document.getElementById('search-guild');
     const guildId = guildSelect.value;

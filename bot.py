@@ -65,6 +65,21 @@ async def main():
     else:
         logging.info(f"yt-dlp cache directory already exists: {cache_dir}")
 
+    # Create sounds directory and default README
+    sounds_dir = "sounds"
+    if not os.path.exists(sounds_dir):
+        os.makedirs(sounds_dir)
+        logging.info(f"Created sounds directory: {sounds_dir}")
+    from utils.soundboard import create_default_sounds
+
+    create_default_sounds()
+
+    # Create presets directory
+    presets_dir = "presets"
+    if not os.path.exists(presets_dir):
+        os.makedirs(presets_dir)
+        logging.info(f"Created presets directory: {presets_dir}")
+
     async with bot:
         for filename in os.listdir("./cogs"):
             if (

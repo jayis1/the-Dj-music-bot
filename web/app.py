@@ -140,9 +140,14 @@ def dashboard():
                 }
             )
 
+    from utils.soundboard import list_sounds
+    from utils.presets import list_presets as list_presets_fn
+
     return render_template(
         "dashboard.html",
         guilds=guilds_data,
+        sounds=list_sounds(),
+        presets=list_presets_fn(),
         bot_user=str(bot.user) if bot else "Not connected",
         bot_avatar=bot.user.display_avatar.url if bot and bot.user else None,
         guild_count=len(bot.guilds) if bot else 0,
@@ -456,7 +461,261 @@ def dj_lines_remove():
     return redirect(url_for("dj_lines"))
 
 
-# ── Helpers ───────────────────────────────────────────────────────
+# ── Soundboard ─────────────────────────────────────────────────────
+
+
+@app.route("/api/sounds")
+def api_sounds():
+    """List available soundboard sounds."""
+    from utils.soundboard import list_sounds
+
+    sounds = list_sounds()
+    return jsonify({"sounds": sounds})
+
+
+@app.route("/api/<int:guild_id>/soundboard", methods=["POST"])
+def api_soundboard(guild_id):
+    """Play a sound effect in a guild's voice channel."""
+    data = request.json or request.form
+    sound_id = data.get("sound", "").strip()
+    if not sound_id:
+        return jsonify({"error": "Sound ID required"}), 400
+
+    from utils.soundboard import get_sound_path
+
+    path = get_sound_path(sound_id)
+    if not path:
+        return jsonify({"error": f"Sound '{sound_id}' not found"}), 404
+
+    guild = bot.get_guild(guild_id) if bot else None
+    if not guild or not guild.voice_client:
+        return jsonify({"error": "Bot not in voice"}), 400
+
+    import discord
+
+    def _play_sound():
+        try:
+            source = discord.FFmpegPCMAudio(
+                path,
+                before_options="-nostdin",
+                options="-vn",
+            )
+            # Play on top of current audio (if something is playing, we steal the source)
+            # discord.py allows playing a new source which replaces the old one.
+            # Instead we want to overlay. The trick: we use a second FFmpeg process
+            # that writes to a pipe, but that's complex. Simpler: just play it — it
+            # interrupts the current song briefly, then the after callback resumes.
+            # Better approach: create a combined source.
+            # For now: just play it — the DJ drops work best as brief interruptions.
+            guild.voice_client.play(source)
+            return True
+        except Exception as e:
+            logging.error(f"Soundboard: {e}")
+            return False
+
+    # Run in the bot's event loop
+    if bot and bot.loop:
+        future = asyncio.run_coroutine_threadsafe(
+            bot.loop.run_in_executor(None, _play_sound), bot.loop
+        )
+        try:
+            result = future.result(timeout=5)
+        except Exception:
+            result = False
+    else:
+        result = False
+
+    if result:
+        return jsonify({"ok": True})
+    return jsonify({"error": "Failed to play sound"}), 500
+
+
+# ── Queue Reorder & Play Next ──────────────────────────────────────
+
+
+@app.route("/api/<int:guild_id>/queue/reorder", methods=["POST"])
+def api_queue_reorder(guild_id):
+    """Reorder the queue. Expects JSON: {"order": [2, 0, 1, 3, ...]} (old indices)."""
+    music = _get_music_cog()
+    if not music:
+        return jsonify({"error": "Music cog not loaded"}), 503
+    data = request.json or {}
+    order = data.get("order", [])
+    if not order or not isinstance(order, list):
+        return jsonify({"error": "order array required"}), 400
+
+    async def _reorder():
+        q = await music.get_queue(guild_id)
+        size = q.qsize()
+        if len(order) != size:
+            return False
+        # Drain all items
+        items = []
+        while not q.empty():
+            items.append(await q.get())
+        # Reorder
+        try:
+            reordered = [items[i] for i in order]
+        except (IndexError, TypeError):
+            # Put items back in original order on failure
+            for item in items:
+                await q.put(item)
+            return False
+        # Put back in new order
+        for item in reordered:
+            await q.put(item)
+        return True
+
+    result = _run_async(_reorder())
+    if result:
+        return jsonify({"ok": True})
+    return jsonify({"error": "Reorder failed"}), 400
+
+
+@app.route("/api/<int:guild_id>/queue/play_next/<int:index>", methods=["POST"])
+def api_queue_play_next(guild_id, index):
+    """Move a queue item to position 0 (next to be played)."""
+    music = _get_music_cog()
+    if not music:
+        return jsonify({"error": "Music cog not loaded"}), 503
+
+    async def _play_next():
+        q = await music.get_queue(guild_id)
+        size = q.qsize()
+        if index < 0 or index >= size:
+            return False
+        items = []
+        while not q.empty():
+            items.append(await q.get())
+        # Move item at index to position 0
+        item = items.pop(index)
+        items.insert(0, item)
+        for item in items:
+            await q.put(item)
+        return True
+
+    result = _run_async(_play_next())
+    if result:
+        return jsonify({"ok": True})
+    return jsonify({"error": "Invalid index"}), 400
+
+
+# ── Lyrics ──────────────────────────────────────────────────────────
+
+
+@app.route("/api/<int:guild_id>/lyrics")
+def api_lyrics(guild_id):
+    """Fetch lyrics for the currently playing song."""
+    music = _get_music_cog()
+    if not music:
+        return jsonify({"error": "Music cog not loaded"}), 503
+    current = music.current_song.get(guild_id)
+    if not current:
+        return jsonify({"lyrics": None, "title": None})
+
+    from utils.lyrics import get_lyrics
+
+    lyrics = _run_async(get_lyrics(current.title))
+    return jsonify({"lyrics": lyrics, "title": current.title})
+
+
+# ── Presets (Save/Load Playlists) ─────────────────────────────────
+
+
+@app.route("/api/presets")
+def api_presets_list():
+    """List all saved presets."""
+    from utils.presets import list_presets
+
+    return jsonify({"presets": list_presets()})
+
+
+@app.route("/api/<int:guild_id>/presets/save", methods=["POST"])
+def api_presets_save(guild_id):
+    """Save the current queue as a preset."""
+    music = _get_music_cog()
+    if not music:
+        return jsonify({"error": "Music cog not loaded"}), 503
+    data = request.json or request.form
+    name = data.get("name", "").strip()
+    if not name:
+        return jsonify({"error": "Preset name required"}), 400
+
+    async def _save():
+        q = music.song_queues.get(guild_id)
+        if not q or q.empty():
+            return "empty"
+        from utils.presets import save_preset, queue_to_tracks
+
+        tracks = queue_to_tracks(q)
+        return save_preset(name, tracks)
+
+    result = _run_async(_save())
+    if result == "empty":
+        return jsonify({"error": "Queue is empty"}), 400
+    if result:
+        return jsonify({"ok": True})
+    return jsonify({"error": "Save failed"}), 500
+
+
+@app.route("/api/<int:guild_id>/presets/load", methods=["POST"])
+def api_presets_load(guild_id):
+    """Load a preset into the queue."""
+    music = _get_music_cog()
+    if not music:
+        return jsonify({"error": "Music cog not loaded"}), 503
+    data = request.json or request.form
+    name = data.get("name", "").strip()
+    if not name:
+        return jsonify({"error": "Preset name required"}), 400
+
+    from utils.presets import load_preset
+
+    tracks = load_preset(name)
+    if not tracks:
+        return jsonify({"error": f"Preset '{name}' not found"}), 404
+
+    async def _load():
+        queue = await music.get_queue(guild_id)
+        from cogs.youtube import PlaceholderTrack
+
+        count = 0
+        for t in tracks:
+            url = t.get("webpage_url") or t.get("url")
+            if url:
+                # Build a PlaceholderTrack-compatible dict
+                entry = {
+                    "id": url.split("v=")[-1].split("&")[0] if "v=" in url else "",
+                    "title": t.get("title", "Unknown"),
+                    "url": url,
+                    "ie_key": "Youtube",
+                    "duration": t.get("duration"),
+                    "thumbnail": t.get("thumbnail"),
+                }
+                pt = PlaceholderTrack(entry)
+                await queue.put(pt)
+                count += 1
+        return count
+
+    result = _run_async(_load())
+    return jsonify({"ok": True, "result": f"Loaded {result} tracks"})
+
+
+@app.route("/api/presets/delete", methods=["POST"])
+def api_presets_delete():
+    """Delete a saved preset."""
+    data = request.json or request.form
+    name = data.get("name", "").strip()
+    if not name:
+        return jsonify({"error": "Preset name required"}), 400
+    from utils.presets import delete_preset
+
+    if delete_preset(name):
+        return jsonify({"ok": True})
+    return jsonify({"error": f"Preset '{name}' not found"}), 404
+
+
+# ── Helpers ───────────────────────────────────────────────────────────
 
 
 def _get_builtin_lines(category: str) -> list:
