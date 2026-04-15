@@ -35,8 +35,12 @@ MBot includes a unique **Radio DJ Mode**. When activated, the bot utilizes a Tex
 MBot features a built-in web dashboard (powered by Flask) that starts automatically in the background alongside the Discord bot.
 
 **Dashboard Features:**
-- **Live Status:** View the now playing song, queue size, volume, playback speed, and DJ mode status for every server the bot is in.
-- **Mission Control Theme:** A sleek, dark-themed UI that auto-refreshes every 30 seconds to keep you updated.
+- **Live Status & Remote Control:** The dashboard isn't just for viewing! You can skip, pause, play, or stop the currently playing song directly from your browser.
+- **Audio Sliders:** Adjust the bot's volume and playback speed smoothly on the fly.
+- **Live Queue Manager:** View the full upcoming queue and remove specific songs with a single click.
+- **Web-based "Add to Queue":** A built-in search bar allows you to paste YouTube links or search queries directly from the dashboard to instantly queue songs.
+- **DJ Voice Selector:** Easily switch the Edge-TTS radio host's voice dynamically via a drop-down menu.
+- **Mission Control Theme:** A sleek, dark-themed UI that auto-refreshes to keep you seamlessly synced with the Discord session.
 
 **Custom DJ Lines (`/dj-lines`):**
 - **10 Categories:** Customize Intros, Song Intros, Hype Intros (Loud), Outros, Transitions, Hype Transitions, Mellow Transitions, Final Outros, Station IDs, and Listener Callouts.

@@ -149,11 +149,15 @@ setup_env() {
   read -rp "$(echo -e "${BOLD}  Radio Station Name (press Enter for MBot):${RESET} ")" STATION_NAME
   STATION_NAME="${STATION_NAME:-MBot}"
 
+  read -rp "$(echo -e "${BOLD}  Web Dashboard Port (press Enter for 8080):${RESET} ")" WEB_PORT
+  WEB_PORT="${WEB_PORT:-8080}"
+
   cat > .env <<EOF
 DISCORD_TOKEN="${DISCORD_TOKEN}"
 YOUTUBE_API_KEY="${YOUTUBE_API_KEY}"
 LOG_CHANNEL_ID="${LOG_CHANNEL_ID}"
 STATION_NAME="${STATION_NAME}"
+WEB_PORT="${WEB_PORT}"
 EOF
 
   success ".env file created successfully!"

@@ -1,78 +1,375 @@
 {% extends "base.html" %}
 {% block title %}Dashboard{% endblock %}
 {% block content %}
-<h1 style="margin-bottom: 8px;">📡 Mission Control</h1>
-<p style="color: var(--text-muted); margin-bottom: 32px;">Live status for your MBot instance</p>
+<h1 style="margin-bottom: 8px;">📡 {{ bot_name }} Mission Control</h1>
+<p style="color: var(--text-muted); margin-bottom: 32px;">Live status & remote control for {{ bot_name }}</p>
 
 <div class="status-bar">
     <div class="status-indicator">
         <div class="status-dot {% if bot_user != 'Not connected' %}{% else %}offline{% endif %}"></div>
         <span>{{ bot_user }}</span>
     </div>
-    <div style="color: var(--text-muted); font-size: 13px;">{{ guild_count }} server{{ guild_count != 1 }}</div>
+    <div style="display: flex; align-items: center; gap: 16px;">
+        <span style="color: var(--text-muted); font-size: 13px;">{{ guild_count }} server{{ 's' if guild_count != 1 else '' }}</span>
+        <a href="{{ url_for('dj_lines') }}" class="btn">🎙️ DJ Lines</a>
+    </div>
 </div>
 
-<div class="guild-grid">
 {% for g in guilds %}
-    <div class="card guild-card">
-        <div class="guild-header">
-            <div class="guild-icon">{{ g.name[0] }}</div>
-            <div class="guild-info">
-                <h3>{{ g.name }}</h3>
-                <div class="meta">
-                    {{ g.member_count }} members
-                    {% if g.in_voice %} · 🔊 {{ g.voice_channel }}{% endif %}
-                </div>
+<div class="card guild-card" id="guild-{{ g.id }}">
+    <!-- Guild header -->
+    <div class="guild-header">
+        <div class="guild-icon">{{ g.name[0] }}</div>
+        <div class="guild-info" style="flex: 1;">
+            <h3>{{ g.name }}</h3>
+            <div class="meta">
+                {{ g.member_count }} members
+                {% if g.in_voice %} · 🔊 {{ g.voice_channel }}{% endif %}
             </div>
         </div>
+        <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+            {% if g.playing %}<span class="badge badge-playing">▶ Playing</span>
+            {% elif g.paused %}<span class="badge badge-paused">⏸ Paused</span>
+            {% elif g.in_voice %}<span class="badge badge-idle">Idle</span>
+            {% else %}<span class="badge badge-offline">Not Connected</span>{% endif %}
+            {% if g.dj_enabled %}<span class="badge badge-dj">🎙️ DJ</span>{% endif %}
+            {% if g.looping %}<span class="badge" style="background: rgba(245,158,11,0.15); color: var(--warning);">🔁 Loop</span>{% endif %}
+        </div>
+    </div>
 
-        <div class="stats-row">
-            <div class="stat">
-                <div class="value">{% if g.playing %}▶️{% elif g.paused %}⏸️{% elif g.in_voice %}⏹️{% else %}—{% endif %}</div>
-                <div class="label">{% if g.playing %}Playing{% elif g.paused %}Paused{% elif g.in_voice %}Idle{% else %}Offline{% endif %}</div>
-            </div>
-            <div class="stat">
-                <div class="value">{{ g.queue_size }}</div>
-                <div class="label">Queue</div>
-            </div>
-            <div class="stat">
-                <div class="value">{{ g.volume }}%</div>
-                <div class="label">Volume</div>
-            </div>
-            <div class="stat">
-                <div class="value">{{ "%.1f"|format(g.speed) }}x</div>
-                <div class="label">Speed</div>
-            </div>
+    <!-- Stats row -->
+    <div class="stats-row">
+        <div class="stat">
+            <div class="value">{{ g.queue_size }}</div>
+            <div class="label">Queue</div>
         </div>
+        <div class="stat">
+            <div class="value">{{ g.volume }}%</div>
+            <div class="label">Volume</div>
+        </div>
+        <div class="stat">
+            <div class="value">{{ "%.1f"|format(g.speed) }}x</div>
+            <div class="label">Speed</div>
+        </div>
+    </div>
 
-        {% if g.dj_enabled %}
-        <div style="margin-bottom: 12px;">
-            <span class="badge badge-dj">🎙️ DJ Mode ON</span>
-            <span style="font-size: 12px; color: var(--text-muted); margin-left: 8px;">Voice: {{ g.dj_voice }}</span>
-        </div>
+    <!-- Playback controls -->
+    {% if g.in_voice %}
+    <div class="controls" style="margin-bottom: 16px;">
+        <button class="btn" onclick="apiAction({{ g.id }}, 'pause')" title="Play / Pause">{% if g.playing %}⏸️ Pause{% elif g.paused %}▶️ Resume{% else %}▶️ Play{% endif %}</button>
+        <button class="btn" onclick="apiAction({{ g.id }}, 'skip')" title="Skip">⏭️ Skip</button>
+        <button class="btn btn-danger" onclick="apiAction({{ g.id }}, 'stop')" title="Stop">⏹️ Stop</button>
+        <button class="btn" onclick="toggleDj({{ g.id }})" title="Toggle DJ">{% if g.dj_enabled %}🎙️ DJ On{% else %}🎙️ DJ Off{% endif %}</button>
+    </div>
+
+    <!-- Volume slider -->
+    <div style="margin-bottom: 12px;">
+        <label style="font-size: 12px; color: var(--text-muted); display: flex; align-items: center; gap: 8px;">
+            🔊 Volume: <span id="vol-label-{{ g.id }}">{{ g.volume }}%</span>
+        </label>
+        <input type="range" min="0" max="200" value="{{ g.volume }}"
+               class="slider" id="vol-{{ g.id }}"
+               oninput="document.getElementById('vol-label-{{ g.id }}').textContent = this.value + '%'"
+               onchange="setVolume({{ g.id }}, this.value)">
+    </div>
+
+    <!-- Speed slider -->
+    <div style="margin-bottom: 12px;">
+        <label style="font-size: 12px; color: var(--text-muted); display: flex; align-items: center; gap: 8px;">
+            ⏩ Speed: <span id="spd-label-{{ g.id }}">{{ "%.1f"|format(g.speed) }}x</span>
+        </label>
+        <input type="range" min="0" max="7" value="{{ [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0].index(g.speed) if g.speed in [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0] else 3 }}"
+               class="slider" id="spd-{{ g.id }}"
+               oninput="document.getElementById('spd-label-{{ g.id }}').textContent = [0.25,0.5,0.75,1.0,1.25,1.5,1.75,2.0][this.value] + 'x'"
+               onchange="setSpeed({{ g.id }}, [0.25,0.5,0.75,1.0,1.25,1.5,1.75,2.0][this.value])">
+    </div>
+
+    <!-- DJ Voice dropdown -->
+    {% if g.dj_enabled %}
+    <div style="margin-bottom: 16px;">
+        <label style="font-size: 12px; color: var(--text-muted);">🗣️ DJ Voice:</label>
+        <select id="voice-{{ g.id }}" class="voice-select" onchange="setDjVoice({{ g.id }}, this.value)">
+            <option value="">Loading voices...</option>
+        </select>
+        <script>
+        loadVoices({{ g.id }}, "{{ g.dj_voice }}");
+        </script>
+    </div>
+    {% endif %}
+    {% endif %}
+
+    <!-- Now playing with thumbnail -->
+    {% if g.current_song %}
+    <div class="now-playing" style="display: flex; gap: 16px; align-items: flex-start;">
+        {% if g.current_thumbnail %}
+        <img src="{{ g.current_thumbnail }}" alt="" style="width: 96px; height: 96px; border-radius: 8px; object-fit: cover; flex-shrink: 0;">
+        {% else %}
+        <div style="width: 96px; height: 96px; border-radius: 8px; background: var(--bg-primary); display: flex; align-items: center; justify-content: center; font-size: 36px; flex-shrink: 0;">🎵</div>
         {% endif %}
-
-        {% if g.looping %}
-        <div style="margin-bottom: 12px;">
-            <span class="badge badge-paused">🔁 Loop</span>
-        </div>
-        {% endif %}
-
-        {% if g.current_song %}
-        <div class="card now-playing" style="margin-bottom: 0; margin-top: 4px;">
+        <div style="flex: 1; min-width: 0;">
             <div class="song-title">
                 {% if g.current_song_url %}<a href="{{ g.current_song_url }}" target="_blank">{% endif %}
                 {{ g.current_song }}
                 {% if g.current_song_url %}</a>{% endif %}
             </div>
+            <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">
+                {% if g.current_duration %}
+                    {{ g.current_duration // 60 }}:{{ "%02d"|format(g.current_duration % 60) }}
+                {% else %}
+                    ∞
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Queue panel -->
+    {% if g.queue_size > 0 %}
+    <div style="margin-top: 16px;">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+            <h4 style="font-size: 14px; color: var(--text-secondary);">📋 Up Next ({{ g.queue_size }})</h4>
+        </div>
+        <div class="queue-list" id="queue-{{ g.id }}">
+        {% for item in g.queue_items %}
+        <div class="queue-item">
+            {% if item.thumbnail %}
+            <img src="{{ item.thumbnail }}" alt="" class="queue-thumb">
+            {% else %}
+            <div class="queue-thumb queue-thumb-placeholder">🎵</div>
+            {% endif %}
+            <div class="queue-info">
+                <span class="queue-title">{{ item.title }}</span>
+                {% if item.duration %}<span class="queue-duration">{{ item.duration // 60 }}:{{ "%02d"|format(item.duration % 60) }}</span>{% endif %}
+            </div>
+            <div class="queue-actions">
+                <span class="queue-pos">{{ loop.index }}</span>
+                <button class="btn btn-icon btn-danger" onclick="removeFromQueue({{ g.id }}, {{ loop.index0 }})" title="Remove">✕</button>
+            </div>
+        </div>
+        {% endfor %}
+        {% if g.queue_size > 50 %}
+        <div class="queue-item" style="color: var(--text-muted); font-style: italic;">
+            ... and {{ g.queue_size - 50 }} more songs
         </div>
         {% endif %}
+        </div>
     </div>
+    {% endif %}
+</div>
 {% endfor %}
+
+<!-- Search / Add to Queue -->
+<div class="card" style="margin-top: 24px;">
+    <h2 style="margin-bottom: 16px;">🔍 Add to Queue</h2>
+    <div id="search-bar">
+        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+            <select id="search-guild" style="background: var(--bg-card); border: 1px solid var(--border); color: var(--text-primary); padding: 8px 12px; border-radius: var(--radius); font-size: 13px; min-width: 160px;">
+                {% for g in guilds %}
+                {% if g.in_voice %}
+                <option value="{{ g.id }}">{{ g.name }}</option>
+                {% endif %}
+                {% endfor %}
+            </select>
+            <input type="text" id="search-input" placeholder="YouTube URL, playlist URL, or search terms..." style="flex: 1; min-width: 300px; background: var(--bg-card); border: 1px solid var(--border); color: var(--text-primary); padding: 8px 12px; border-radius: var(--radius); font-size: 13px;">
+            <button class="btn btn-primary" onclick="addToQueue()" id="search-btn">▶ Play</button>
+        </div>
+    </div>
 </div>
 
 <p style="color: var(--text-muted); font-size: 12px; margin-top: 24px; text-align: center;">
     Auto-refreshes every 30 seconds ·
     <a href="{{ url_for('dashboard') }}">Refresh now</a>
 </p>
+
+<style>
+.voice-select {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    padding: 4px 8px;
+    border-radius: var(--radius);
+    font-size: 12px;
+    margin-left: 8px;
+    min-width: 200px;
+}
+.slider {
+    -webkit-appearance: none;
+    width: 100%;
+    height: 6px;
+    background: var(--border);
+    border-radius: 3px;
+    outline: none;
+}
+.slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--accent);
+    cursor: pointer;
+    box-shadow: 0 0 6px var(--accent);
+}
+.slider::-moz-range-thumb {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--accent);
+    cursor: pointer;
+    border: none;
+}
+.queue-list { max-height: 400px; overflow-y: auto; }
+.queue-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 4px;
+    transition: border-color 0.15s;
+}
+.queue-item:hover { border-color: var(--accent); }
+.queue-thumb {
+    width: 36px; height: 36px;
+    border-radius: 6px;
+    object-fit: cover;
+    flex-shrink: 0;
+}
+.queue-thumb-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-primary);
+    font-size: 16px;
+}
+.queue-info { flex: 1; min-width: 0; }
+.queue-title {
+    font-size: 13px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: block;
+}
+.queue-duration { font-size: 11px; color: var(--text-muted); }
+.queue-actions { display: flex; align-items: center; gap: 4px; }
+.queue-pos {
+    font-size: 11px;
+    color: var(--text-muted);
+    width: 20px;
+    text-align: center;
+}
+</style>
+
+<script>
+// ── Playback Controls ──────────────────────────────────
+async function apiAction(guildId, action) {
+    try {
+        const res = await fetch(`/api/${guildId}/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+        const data = await res.json();
+        if (data.ok) setTimeout(() => location.reload(), 500);
+        else alert(data.error || 'Action failed');
+    } catch (e) { alert('Request failed: ' + e); }
+}
+
+async function setVolume(guildId, value) {
+    try {
+        await fetch(`/api/${guildId}/volume`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ volume: parseInt(value) })
+        });
+    } catch (e) { console.error(e); }
+}
+
+async function setSpeed(guildId, value) {
+    try {
+        await fetch(`/api/${guildId}/speed`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ speed: value })
+        });
+    } catch (e) { console.error(e); }
+}
+
+async function toggleDj(guildId) {
+    try {
+        const res = await fetch(`/api/${guildId}/dj_toggle`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+        const data = await res.json();
+        if (data.ok) setTimeout(() => location.reload(), 500);
+        else alert(data.error || 'DJ toggle failed');
+    } catch (e) { alert('Request failed: ' + e); }
+}
+
+async function setDjVoice(guildId, voice) {
+    try {
+        await fetch(`/api/${guildId}/dj_voice`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ voice: voice })
+        });
+    } catch (e) { console.error(e); }
+}
+
+async function loadVoices(guildId, currentVoice) {
+    const select = document.getElementById('voice-' + guildId);
+    if (!select) return;
+    try {
+        const res = await fetch(`/api/${guildId}/voices`);
+        const data = await res.json();
+        select.innerHTML = '';
+        if (data.voices && data.voices.length > 0) {
+            data.voices.forEach(v => {
+                const opt = document.createElement('option');
+                opt.value = v.name;
+                opt.textContent = v.name + ' (' + v.gender + ', ' + v.locale + ')';
+                if (v.name === currentVoice) opt.selected = true;
+                select.appendChild(opt);
+            });
+        } else {
+            select.innerHTML = '<option value="">No voices available</option>';
+        }
+    } catch (e) {
+        select.innerHTML = '<option value="">Failed to load voices</option>';
+    }
+}
+
+async function removeFromQueue(guildId, index) {
+    try {
+        const res = await fetch(`/api/${guildId}/queue/${index}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (data.ok) setTimeout(() => location.reload(), 500);
+        else alert(data.error || 'Remove failed');
+    } catch (e) { alert('Request failed: ' + e); }
+}
+
+async function addToQueue() {
+    const guildId = document.getElementById('search-guild').value;
+    const query = document.getElementById('search-input').value.trim();
+    if (!query) return;
+    const btn = document.getElementById('search-btn');
+    btn.textContent = '⏳ Adding...';
+    btn.disabled = true;
+    try {
+        const res = await fetch(`/api/${guildId}/play`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query: query })
+        });
+        const data = await res.json();
+        if (data.ok) {
+            document.getElementById('search-input').value = '';
+            setTimeout(() => location.reload(), 2000);
+        } else {
+            alert(data.error || 'Failed to add');
+        }
+    } catch (e) { alert('Request failed: ' + e); }
+    btn.textContent = '▶ Play';
+    btn.disabled = false;
+}
+
+// Enter key on search input
+document.getElementById('search-input')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') addToQueue();
+});
+</script>
 {% endblock %}
