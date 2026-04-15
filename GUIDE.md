@@ -1,6 +1,6 @@
 # MBot 6.2.0 — Comprehensive Technical Guide
 
-> **Last Updated:** 2026-04-15
+> **Last Updated:** 2026-04-16
 > **Version:** 6.2.0
 > **License:** MIT
 
@@ -56,6 +56,9 @@
 | **Lyrics** | Synced lyrics lookup | `syncedlyrics` (primary) + web scraping fallbacks |
 | **Presets** | Save/load playlist presets | Queue state persisted as JSON, loadable from web or Discord |
 | **Web Dashboard** | Mission Control | Flask web app: playback controls, queue drag-and-drop, volume/speed sliders, DJ voice picker, search-to-queue |
+| **Web Dashboard** | Login & password protection | Optional password set via `WEB_PASSWORD` in `.env` — dashboard is open access if blank |
+| **Web Dashboard** | Settings page | Restart/shutdown controls, bot status info |
+| **Web Dashboard** | Join/Leave voice | Dashboard buttons to connect/disconnect the bot from voice |
 | **Auto-Disconnect** | 60-second inactivity timer | Disconnects from voice when idle |
 | **Admin** | Remote shutdown & restart | Bot owner only |
 | **Admin** | Cookie management for yt-dlp | Fetch and set cookies from any HTTPS URL |
@@ -98,13 +101,17 @@ this2.0/
 │   └── import_parser.py    # Parses bot log files (timestamped entries)
 │
 ├── web/                    # Flask Mission Control Dashboard
-│   ├── app.py              # Flask app — 20+ API endpoints, template filters, soundboard/upload/delete
+│   ├── app.py              # Flask app — 25+ API endpoints, login auth, settings, template filters, soundboard/upload/delete
 │   ├── __init__.py
 │   ├── templates/          # Jinja2 HTML templates
-│   │   ├── base.html       # Dark layout, sidebar nav, dynamic bot name, conditional auto-refresh
-│   │   ├── dashboard.html  # Full interactive dashboard with all playback controls
+│   │   ├── base.html       # Dark layout, sidebar nav, dynamic bot name, conditional auto-refresh, logout link
+│   │   ├── login.html      # Standalone login page (not extending base.html)
+│   │   ├── dashboard.html  # Full interactive dashboard with all playback controls, join/leave buttons
+│   │   ├── settings.html   # Settings page — restart, shutdown, system info
 │   │   ├── soundboard.html # Dedicated soundboard page with upload, play, delete
-│   │   └── dj_lines.html   # DJ line CRUD with {sound:name} visual highlights
+│   │   ├── dj_lines.html   # DJ line CRUD with {sound:name} visual highlights
+│   │   ├── radio.html      # Auto-DJ, voice picker, recently played history
+│   │   └── queue_manager.html # Full queue management with drag-and-drop reorder
 │   └── static/
 │       └── style.css        # Dark mission control theme
 │
@@ -154,10 +161,15 @@ cogs/admin.py
   └── modifies → cogs/youtube.py (YTDL_FORMAT_OPTIONS["cookiefile"])
 
 web/app.py
+  ├── imports → config (WEB_PASSWORD for auth), hashlib/hmac (password comparison)
   ├── imports → utils/custom_lines.py (LINE_CATEGORIES, add_line, load_custom_lines, remove_line)
   ├── imports → utils/soundboard.py (list_sounds, get_sound_path, SOUNDS_DIR)
   ├── imports → utils/presets.py (list_presets, save_preset, load_preset, delete_preset)
   ├── imports → utils/lyrics.py (get_lyrics)
+  ├── @app.before_request → require_login() — session auth guard when WEB_PASSWORD is set
+  ├── routes → /login, /logout — password authentication
+  ├── routes → /settings — settings page (system info, restart/shutdown)
+  ├── routes → /api/restart, /api/shutdown — restart/shutdown endpoints
   ├── calls → cogs/music.py (via bot.get_cog("Music")) for playback state
   └── renders → web/templates/*.html (Jinja2 with custom filters)
 
@@ -217,6 +229,7 @@ utils/dj.py
 | `aiohttp` | latest | Async HTTP client (Suno, admin cookie fetch) |
 | `edge-tts` | latest | Microsoft Edge TTS — generates DJ voice audio (optional but needed for DJ mode) |
 | `flask` | latest | Web dashboard (Mission Control) — serves interactive control panel |
+| `psutil` | latest | System/process monitoring — memory & CPU stats on the Settings page |
 | `syncedlyrics` | latest | Fetches synced (LRC) lyrics for the currently playing song |
 | `pytest` | latest | Test framework |
 | `pytest-asyncio` | latest | Async test support for pytest |
@@ -305,6 +318,10 @@ STATION_NAME=MyAwesomeRadio
 
 # Optional — Web dashboard port (default: 8080)
 WEB_PORT=8080
+
+# Optional — Password to protect the web dashboard (default: no password / open access)
+# If set, all dashboard pages require login. If blank or unset, dashboard is open to everyone.
+WEB_PASSWORD=
 ```
 
 | Variable | Required? | Source | Used By |
@@ -313,6 +330,7 @@ WEB_PORT=8080
 | `YOUTUBE_API_KEY` | No (needed for `?search`) | [Google Cloud Console](https://console.cloud.google.com/apis/library/youtube.googleapis.com) | `cogs/music.py` → `search` command |
 | `LOG_CHANNEL_ID` | No | Discord: right-click channel → Copy Channel ID (Developer Mode required) | `bot.py` → `DiscordLogHandler` init |
 | `BOT_OWNER_ID` | No | Discord: right-click your username → Copy User ID | `cogs/admin.py` → `@commands.is_owner()` |
+| `WEB_PASSWORD` | No | Any string you choose | `web/app.py` → `require_login()` before_request guard |
 
 ### `config.py` Constants
 
@@ -320,6 +338,7 @@ WEB_PORT=8080
 DISCORD_TOKEN = os.environ.get("DISCORD_TOKEN")
 YOUTUBE_API_KEY = os.environ.get("YOUTUBE_API_KEY")
 COMMAND_PREFIX = "?"
+WEB_PASSWORD = os.environ.get("WEB_PASSWORD", "")
 LOG_CHANNEL_ID = int(os.environ.get("LOG_CHANNEL_ID", 0) or 0) or None
 ```
 
@@ -329,6 +348,7 @@ LOG_CHANNEL_ID = int(os.environ.get("LOG_CHANNEL_ID", 0) or 0) or None
 | `YOUTUBE_API_KEY` | None | YouTube Data API v3 key |
 | `COMMAND_PREFIX` | `?` | All commands are prefixed with this character |
 | `LOG_CHANNEL_ID` | None | Channel ID for Discord log shipping |
+| `WEB_PASSWORD` | `""` | Password for dashboard login (blank = open access) |
 
 ### DJ Mode Configuration (`config.py`)
 
@@ -347,6 +367,9 @@ LOG_CHANNEL_ID = int(os.environ.get("LOG_CHANNEL_ID", 0) or 0) or None
 |---|---|---|
 | `WEB_HOST` | `0.0.0.0` | Flask server listen address (all interfaces) |
 | `WEB_PORT` | From `.env` or `8080` | Flask server listen port |
+| `WEB_PASSWORD` | From `.env` or `""` | Password to access the dashboard. If empty/blank, no login is required (open access). If set, all dashboard pages require authentication via the login page. |
+
+> **Security note:** `WEB_PASSWORD` is compared using `hmac.compare_digest()` with SHA-256 hashes to prevent timing attacks. The password is never stored in plaintext in session — only a boolean `authenticated` flag is kept in the Flask session.
 
 ### Emoji Configuration (`config.py`)
 
@@ -1644,47 +1667,138 @@ web_thread.start()
 
 The Flask app (`web/app.py`) receives the bot instance via `init_dashboard(bot)` so it can access the Music cog's state directly.
 
+### Authentication (Login Page)
+
+The dashboard supports optional password protection via the `WEB_PASSWORD` environment variable.
+
+**How it works:**
+
+1. Set `WEB_PASSWORD=your_password` in your `.env` file.
+2. When a password is configured, a `@app.before_request` handler (`require_login()`) intercepts all requests.
+3. Unauthenticated users are redirected to `/login` — a standalone dark-themed login page.
+4. On successful password entry (verified via `hmac.compare_digest()` with SHA-256 hashes), `session["authenticated"] = True` is set.
+5. Authenticated users see all dashboard pages normally. A 🔓 **Log Out** link appears at the bottom of the sidebar.
+6. The `/logout` route clears the session and redirects back to login.
+
+**If `WEB_PASSWORD` is blank or not set** — the dashboard is open access (no login required, same as before).
+
+**Security details:**
+- Passwords are compared using `hmac.compare_digest()` to prevent timing attacks.
+- Only a boolean `authenticated` flag is stored in the Flask session — the password is never stored client-side.
+- The login page is standalone (does not extend `base.html`) so it renders even when the user is not authenticated.
+- API endpoints are also protected by the same session check — unauthenticated API calls are redirected to login.
+
 ### Pages
 
 | Page | Route | Purpose |
 |---|---|---|
-| **Dashboard** | `/` | Live status & remote control: playback buttons, volume/speed sliders, queue drag-and-drop, DJ voice picker, lyrics, presets, search-to-queue |
+| **Login** | `/login` | Password entry (only shown when `WEB_PASSWORD` is set) |
+| **Dashboard** | `/` | Live status & remote control: playback buttons, join/leave voice, volume/speed sliders, queue drag-and-drop, DJ voice picker, lyrics, presets, search-to-queue |
 | **DJ Lines** | `/dj-lines` | Browse, add, and remove custom DJ lines per category |
 | **Soundboard** | `/soundboard` | Play sound effects, upload new sounds, delete existing ones |
+| **Radio** | `/radio` | Auto-DJ config, DJ voice picker, recently played history |
+| **Queue** | `/queue-manager` | Full queue management with drag-and-drop reorder |
+| **Settings** | `/settings` | Bot status info, restart and shutdown controls |
 
 ### Navigation
 
-The sidebar in `base.html` provides navigation between all three pages. The bot's name is dynamically injected from `bot.user.name` (not hardcoded).
+The sidebar in `base.html` provides navigation between all pages. The bot's name is dynamically injected from `bot.user.name` (not hardcoded). When authenticated, a 🔓 **Log Out** link appears at the bottom of the sidebar.
+
+### Dashboard Voice Controls (Join/Leave)
+
+The dashboard provides **🔌 Join** and **🔌 Leave** buttons for each guild card:
+
+- **Join** (shown when bot is not in voice) — Calls `/api/<guild_id>/join` to connect the bot to the first voice channel with a human member.
+- **Leave** (shown when bot is in voice) — Calls `/api/<guild_id>/leave` to disconnect the bot from the voice channel.
+
+These buttons are placed alongside the existing playback controls (Pause, Skip, Stop, DJ, Auto-DJ).
+
+### Settings Page
+
+The Settings page (⚙️ in sidebar) provides:
+
+**Bot Status card:**
+- Bot name and connection status
+- Server count
+- Python version
+- Platform info
+- Memory usage (via `psutil`)
+- CPU usage (via `psutil`)
+
+**Danger Zone card:**
+- 🔄 **Restart Bot** — Calls `/api/restart` which uses `os.execv()` to re-execute the Python process. Shows a confirmation modal before executing.
+- 🔴 **Shut Down Bot** — Calls `/api/shutdown` which sends `SIGTERM` to the bot process. Shows a confirmation modal before executing.
+
+Both actions display a JavaScript confirmation modal before executing. After restart, the page auto-refreshes after 8 seconds to reconnect when the bot comes back online.
+
+> **Note:** If `psutil` is not installed, memory and CPU show as 0. Install with `pip install psutil`.
 
 ### Auto-Refresh
 
-The dashboard page auto-refreshes every 30 seconds (`<meta http-equiv="refresh" content="30">`) to keep the live status current. The DJ Lines and Soundboard pages **do not** auto-refresh (they use `{% if auto_refresh %}` conditional in the base template) to prevent killing file uploads and form submissions mid-flight.
+The dashboard page auto-refreshes every 30 seconds (`<meta http-equiv="refresh" content="30">`) to keep the live status current. The DJ Lines, Soundboard, Radio, Queue, and Settings pages **do not** auto-refresh (they use `{% if auto_refresh %}` conditional in the base template) to prevent killing file uploads and form submissions mid-flight.
 
 ### API Endpoints
+
+#### Playback & Voice
 
 | Endpoint | Method | Purpose |
 |---|---|---|
 | `/api/<guild_id>/skip` | POST | Skip current song |
 | `/api/<guild_id>/pause` | POST | Toggle pause/resume |
 | `/api/<guild_id>/stop` | POST | Stop playback and clear queue |
+| `/api/<guild_id>/join` | POST | Join the first voice channel with a human member |
+| `/api/<guild_id>/leave` | POST | Disconnect from the voice channel |
 | `/api/<guild_id>/volume` | POST | Set volume (0–200) |
 | `/api/<guild_id>/speed` | POST | Set speed (0.25–2.0) |
+| `/api/<guild_id>/play` | POST | Add URL/search to queue and start playback |
+| `/api/<guild_id>/lyrics` | GET | Fetch lyrics for currently playing song |
+
+#### DJ & Auto-DJ
+
+| Endpoint | Method | Purpose |
+|---|---|---|
 | `/api/<guild_id>/dj_toggle` | POST | Toggle DJ mode on/off |
 | `/api/<guild_id>/dj_voice` | POST | Set DJ TTS voice |
 | `/api/<guild_id>/voices` | GET | List available TTS voices |
-| `/api/<guild_id>/play` | POST | Add URL/search to queue and start playback |
-| `/api/<guild_id>/soundboard` | POST | Play a sound effect in voice |
+| `/api/<guild_id>/autodj_toggle` | POST | Toggle Auto-DJ on/off |
+| `/api/<guild_id>/autodj_source` | POST | Set Auto-DJ source playlist/preset |
+| `/api/<guild_id>/listeners` | GET | Get list of users in the bot's voice channel |
+| `/api/<guild_id>/history` | GET | Get recently played history |
+| `/api/<guild_id>/history/replay/<index>` | POST | Re-add a track from history to the queue |
+
+#### Queue
+
+| Endpoint | Method | Purpose |
+|---|---|---|
 | `/api/<guild_id>/queue/<index>` | DELETE | Remove item from queue |
+| `/api/<guild_id>/queue/clear` | POST | Clear the entire queue |
 | `/api/<guild_id>/queue/reorder` | POST | Reorder queue (expects `{"order": [2,0,1,3]}`) |
 | `/api/<guild_id>/queue/play_next/<index>` | POST | Move queue item to position 0 (next to play) |
-| `/api/<guild_id>/lyrics` | GET | Fetch lyrics for currently playing song |
-| `/api/<guild_id>/presets/save` | POST | Save current queue as named preset |
-| `/api/<guild_id>/presets/load` | POST | Load a preset into the queue |
+
+#### Soundboard
+
+| Endpoint | Method | Purpose |
+|---|---|---|
 | `/api/sounds` | GET | List available soundboard sounds |
 | `/api/sounds/upload` | POST | Upload a sound file (multipart/form-data) |
 | `/api/sounds/delete` | POST | Delete a sound file |
+| `/api/<guild_id>/soundboard` | POST | Play a sound effect in voice |
+
+#### Presets
+
+| Endpoint | Method | Purpose |
+|---|---|---|
 | `/api/presets` | GET | List all saved presets |
 | `/api/presets/delete` | POST | Delete a saved preset |
+| `/api/<guild_id>/presets/save` | POST | Save current queue as named preset |
+| `/api/<guild_id>/presets/load` | POST | Load a preset into the queue |
+
+#### System
+
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/api/restart` | POST | Restart the bot process (`os.execv()`) |
+| `/api/shutdown` | POST | Shut down the bot process (`SIGTERM`) |
 
 ### Flask ↔ Discord.py Bridge
 
@@ -2009,6 +2123,8 @@ venv/bin/python -m pytest tests/test_suno.py -v
 | **Upload button doesn't work on Soundboard** | File input had `display:none`; auto-refresh killed uploads | Fixed — uses `opacity:0; position:absolute`; auto-refresh disabled on non-dashboard pages. (Fixed in 6.2.0) |
 | **"No closing quotation" FFmpeg error** | Crossfade filter string missing closing `"` on `atempo` | Fixed — crossfade filter now properly closes the FFmpeg quote. (Fixed in 6.2.0) |
 | **Dashboard buttons broken for some guilds** | Guild IDs passed as JS numbers instead of strings, truncating >53-bit snowflakes | Fixed — all guild IDs in HTML/JS wrapped in single quotes. (Fixed in 6.2.0) |
+| **Dashboard 500 error after login** | Stray `{% endif %}` in `dashboard.html` with no matching `{% if %}` — Jinja2 `TemplateSyntaxError` | Fixed — removed the orphaned `{% endif %}` tag. (Fixed in 6.2.0) |
+| **Settings page shows 0 MB / 0% CPU** | `psutil` not installed | Install with `pip install psutil`. The page gracefully falls back to 0 if not installed. |
 
 ### Known Issues
 
@@ -2039,6 +2155,8 @@ venv/bin/python -m pytest tests/test_suno.py -v
 | **Dashboard buttons broken for large guild IDs** | Guild IDs rendered as bare JS numbers (`{{ g.id }}`) — Discord snowflakes exceed JS `Number.MAX_SAFE_INTEGER` (2^53-1), causing silent truncation | All guild IDs in HTML/JS wrapped in single quotes (`'{{ g.id }}'`) |
 | **PlaceholderTrack `webpage_url` set to bare video ID** | `yt-dlp` `extract_flat=True` returns bare IDs in `url` field (e.g., `"dQw4w9WgXcQ"`). The `or` fallback in `__init__` set `webpage_url` to the bare ID (truthy), preventing proper URL construction | Check if `url` starts with `http` before using it as `webpage_url` |
 | **Jinja `is none` check on JS variable** | Soundboard guild selection used Jinja `{% if soundboardGuild is none %}` on a JS variable — Jinja renders at template time | Build JS array of in-voice guild IDs and pick first one at runtime |
+| **Dashboard 500 error (TemplateSyntaxError)** | Stray `{% endif %}` tag at line 102 in `dashboard.html` with no matching `{% if %}` — Jinja2 error: "Encountered unknown tag 'endif'" | Removed the orphaned `{% endif %}` — the volume/speed sliders were already outside the `{% if g.in_voice %}` block |
+| **Dashboard Join button did nothing** | `joinVoice()` JavaScript function was referenced in the HTML `onclick` handler but never defined — clicking Join had no effect | Added `joinVoice()` and `leaveVoice()` JavaScript functions that call the join/leave API endpoints with loading states and toast feedback |
 
 ---
 
