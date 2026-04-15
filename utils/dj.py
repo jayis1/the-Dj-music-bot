@@ -145,6 +145,18 @@ INTROS = [
     "{greeting} Let me start you off with something good. {title}.",
     "Here we go, {greeting} Our first song is {title}.",
     "{greeting} You picked a great one to start with. Here's {title}.",
+    # ── With sound tags ──
+    "{greeting} We are LIVE! Let's kick it off with {title}. {sound:airhorn}",
+    "{greeting} The station is on the air! First up, {title}. {sound:dj_drop}",
+    "{greeting} Showtime, baby! Starting with {title}! {sound:club_hit}",
+    "{greeting} Let's get this session rolling. Here's {title}. {sound:turntable_start}",
+    "{greeting} Good vibes only. Kicking off with {title}. {sound:in_the_mix}",
+    "{greeting} You tuned in at the right time. {title} to start us off! {sound:airhorn}",
+    "{greeting} The DJ is in the house! Opening with {title}. {sound:dj_drop}",
+    "{greeting} Ladies and gentlemen, let's begin with {title}! {sound:applause}",
+    "{greeting} Radio is live and we're starting strong. {title}! {sound:air_raid}",
+    "{greeting} This is your captain speaking. Taking off with {title}. {sound:turntable_start}",
+    "{greeting} Music, music, music! First track — {title}. {sound:button_press}",
 ]
 
 # Song-specific hype intros (used instead of intros for 2nd+ songs)
@@ -163,6 +175,12 @@ HYPE_INTROS = [
     "Alright, here's {title}.",
     "Coming up now, {title}.",
     "Get ready for {title}.",
+    # ── With sound tags ──
+    "{title} is next! {sound:button_press}",
+    "Incoming! {title}! {sound:airhorn}",
+    "Next up, {title}. {sound:turntable_start}",
+    "Watch this. {title}! {sound:club_hit}",
+    "Here comes {title}. {sound:in_the_mix}",
 ]
 
 # Enthusiastic intros (randomly picked ~25% of the time for extra energy)
@@ -176,6 +194,16 @@ HYPE_INTROS_LOUD = [
     "Are you ready for this? {title}!",
     "I've been waiting to play this one! {title}!",
     "Turn this one up loud! {title}!",
+    # ── With sound tags ──
+    "THIS is the one! {title}! {sound:airhorn} Let's go!",
+    "Are you ready?! {title}! {sound:air_raid}",
+    "Oh yeah! Let me hear it for {title}! {sound:applause}",
+    "THIS IS IT! {title}! {sound:club_hit}",
+    "Buckle up! {title} is about to blow your mind! {sound:dj_drop}",
+    "Turn it ALL the way up! {title}! {sound:airhorn}",
+    "The moment you've been waiting for! {title}! {sound:applause}",
+    "DJ drop incoming! It's {title}! {sound:dj_drop}",
+    "Loud and proud! {title}! {sound:airhorn}",
 ]
 
 # Outros — after a song when the next track is UNKNOWN
@@ -188,6 +216,12 @@ OUTROS = [
     "That was {title}. Good stuff.",
     "Mm, {title}. That hit the spot.",
     "And that's {title}. Nicely done.",
+    # ── With sound tags ──
+    "That was {title}. {sound:applause}",
+    "And that's a wrap on {title}. {sound:record_scratch}",
+    "{title}. What a track! {sound:applause}",
+    "And that was {title}. Not bad, right? {sound:button_press}",
+    "{title} — done and dusted. {sound:button_press}",
 ]
 
 # Transitions — outro + intro combined (when we know both titles)
@@ -207,6 +241,15 @@ TRANSITIONS = [
     "Alright, {prev_title} in the books. Up next, we've got {next_title}!",
     "From {prev_title}, to {next_title}. Let's keep this going.",
     "That was {prev_title}. And we have absolutely no time to waste. Here's {next_title}!",
+    # ── With sound tags ──
+    "That was {prev_title}. Now, {next_title}! {sound:turntable_start}",
+    "{prev_title}? Great stuff. But wait — {next_title} is next! {sound:airhorn}",
+    "From {prev_title} to {next_title}. In the mix! {sound:in_the_mix}",
+    "Alright, switching gears. {prev_title} done, here's {next_title}. {sound:button_press}",
+    "That was {prev_title}. And coming up next, {next_title}! {sound:club_hit}",
+    "{prev_title} is over. But {next_title} is just getting started! {sound:dj_drop}",
+    "Moving right along! {prev_title} → {next_title}! {sound:turntable_start}",
+    "And that was {prev_title}. Hold on — {next_title} is up! {sound:airhorn}",
 ]
 
 # Energetic transitions (~25% chance, replaces regular transition for hype moments)
@@ -216,6 +259,14 @@ TRANSITIONS_HYPE = [
     "YES! {prev_title}! And we're not stopping! {next_title} is next!",
     "Alright! {prev_title} was fire, and {next_title} is about to match that energy!",
     "{prev_title} was incredible. And {next_title}? Oh, just wait!",
+    # ── With sound tags ──
+    "That was {prev_title}! And NOW — {next_title}! {sound:airhorn} LET'S GO!",
+    "{prev_title} was fire! But {next_title}? EVEN HOTTER! {sound:air_raid}",
+    "YES! {prev_title}! And we keep going with {next_title}! {sound:club_hit}",
+    "Going from {prev_title} straight into {next_title}! {sound:airhorn} No brakes!",
+    "{prev_title} was insane! And {next_title} is about to blow the roof off! {sound:applause}",
+    "That was {prev_title}! Now brace yourself for {next_title}! {sound:dj_drop}",
+    "Double trouble! {prev_title} done, {next_title} incoming! {sound:airhorn}",
 ]
 
 # Mellow transitions (for late night / chill vibes)
@@ -225,6 +276,11 @@ TRANSITIONS_MELLOW = [
     "Lovely track, {prev_title}. Here's {next_title} to keep the vibe going.",
     "{prev_title}. Hmm. Now let's ease into {next_title}.",
     "That was {prev_title}. Let's keep the mood going with {next_title}.",
+    # ── With sound tags ──
+    "That was {prev_title}. Now ease into {next_title}. {sound:turntable_start}",
+    "{prev_title} was beautiful. And {next_title} keeps the vibe alive. {sound:in_the_mix}",
+    "Mmm, {prev_title}. Smooth transition to {next_title}. {sound:button_press}",
+    "Vibing. {prev_title} → {next_title}. {sound:turntable_start}",
 ]
 
 # Final outros — when the queue is empty after this song
@@ -239,6 +295,14 @@ OUTROS_FINAL = [
     "That was {title}. And we're done! For now. I'll be here if you need me.",
     "And that's {title}. We've burned through the whole queue! Great session, everyone. Until next time.",
     "{title} — and that's a wrap on tonight's set. The bar's open, the DJ's here, just no more songs. Yet.",
+    # ── With sound tags ──
+    "That was {title}. And that's the show! {sound:applause} Until next time.",
+    "{title} — and we're done! {sound:record_scratch} But the DJ's still in the booth!",
+    "And that wraps it up with {title}! {sound:applause} Great session, everyone.",
+    "End of the road with {title}. The station never sleeps though. {sound:dj_drop}",
+    "That was {title}. Queue's empty! But I'll be right here. {sound:button_press} Request anytime.",
+    "{title} — final track! {sound:airhorn} What a session, everyone!",
+    "And that's {title}. Show's over! {sound:applause} But you know where to find me.",
 ]
 
 # Station IDs — randomly sprinkled in front of intros
@@ -253,6 +317,15 @@ STATION_IDS = [
     f"This is {config.STATION_NAME}, keeping the music alive, 24 7.",
     f"You're on {config.STATION_NAME} Radio, where the tunes never end.",
     f"From the {config.STATION_NAME} Radio studios, this is your DJ.",
+    # ── With sound tags ──
+    f"You're tuned in to {config.STATION_NAME} Radio. {{sound:dj_drop}}",
+    f"This is {config.STATION_NAME} Radio! {{sound:airhorn}} Your non-stop music station.",
+    f"{config.STATION_NAME} Radio — on the air! {{sound:air_raid}}",
+    f"Welcome to {config.STATION_NAME} Radio. {{sound:dj_drop}}",
+    f"{config.STATION_NAME} Radio. All music. All the time. {{sound:club_hit}}",
+    f"You're listening to {config.STATION_NAME}. {{sound:in_the_mix}}",
+    f"This is {config.STATION_NAME} Radio! {{sound:button_press}} Let's keep it going.",
+    f"From the {config.STATION_NAME} Radio studios — we're live! {{sound:dj_drop}}",
 ]
 
 # Listener callouts — randomly sprinkled for community feel
@@ -267,6 +340,17 @@ CALLOUTS = [
     "I see you in the chat. Let's keep going.",
     "The vibes are immaculate right now.",
     "This crowd never disappoints.",
+    # ── With sound tags ──
+    "Shoutout to everyone listening right now! {sound:applause}",
+    "You guys are the best! {sound:applause} Seriously.",
+    "Thanks for rocking with us! {sound:airhorn}",
+    "Love having you all here! {sound:in_the_mix}",
+    "Glad you're tuning in! {sound:button_press}",
+    "Keep those requests coming! {sound:airhorn} I love it!",
+    "This crowd never disappoints! {sound:applause}",
+    "Someone's got great taste tonight! {sound:club_hit}",
+    "Vibes are immaculate! {sound:dj_drop}",
+    "I see you out there! {sound:applause} Let's keep going!",
 ]
 
 

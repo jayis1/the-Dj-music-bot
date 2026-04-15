@@ -14,6 +14,7 @@ and modify bot state directly via the Music cog.
 
 import asyncio
 import logging
+import re
 import urllib.parse
 
 from flask import (
@@ -38,6 +39,38 @@ from utils.custom_lines import (
 app = Flask(__name__)
 app.secret_key = "mbot-mission-control"
 app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024  # 16MB max upload
+
+
+# ── Template Filters ──────────────────────────────────────────────────
+
+
+@app.template_filter("highlight_sound_tags")
+def highlight_sound_tags(text):
+    """Wrap {sound:name} tags in styled spans so they stand out on the DJ Lines page."""
+    return re.sub(
+        r"\{sound:([^}]+)\}",
+        r'<span class="sound-tag">🔊 \1</span>',
+        text,
+    )
+
+
+@app.template_filter("highlight_placeholders")
+def highlight_placeholders(text):
+    """Wrap all {placeholder} tags in styled spans, with different styles for sound tags."""
+    # First highlight sound tags
+    text = re.sub(
+        r"\{sound:([^}]+)\}",
+        r'<span class="sound-tag">🔊 \1</span>',
+        text,
+    )
+    # Then highlight other placeholders like {title}, {prev_title}, etc.
+    text = re.sub(
+        r"\{(greeting|title|prev_title|next_title)\}",
+        r'<span class="placeholder-tag">{\1}</span>',
+        text,
+    )
+    return text
+
 
 # ── Bot state (set by bot.py at startup) ──────────────────────────
 bot = None
@@ -141,13 +174,11 @@ def dashboard():
                 }
             )
 
-    from utils.soundboard import list_sounds
     from utils.presets import list_presets as list_presets_fn
 
     return render_template(
         "dashboard.html",
         guilds=guilds_data,
-        sounds=list_sounds(),
         presets=list_presets_fn(),
         bot_user=str(bot.user) if bot else "Not connected",
         bot_avatar=bot.user.display_avatar.url if bot and bot.user else None,
@@ -403,6 +434,8 @@ def api_play(guild_id):
 
 @app.route("/dj-lines")
 def dj_lines():
+    from utils.soundboard import list_sounds
+
     custom = load_custom_lines()
     categories = []
     for cat in LINE_CATEGORIES:
@@ -420,7 +453,7 @@ def dj_lines():
                 "total": len(built_in) + len(custom_for_cat),
             }
         )
-    return render_template("dj_lines.html", categories=categories)
+    return render_template("dj_lines.html", categories=categories, sounds=list_sounds())
 
 
 @app.route("/dj-lines/add", methods=["POST"])
@@ -462,7 +495,35 @@ def dj_lines_remove():
     return redirect(url_for("dj_lines"))
 
 
-# ── Soundboard ─────────────────────────────────────────────────────
+# ── Soundboard Page ─────────────────────────────────────────────────
+
+
+@app.route("/soundboard")
+def soundboard():
+    """Soundboard management page."""
+    from utils.soundboard import list_sounds
+
+    # Pass guilds that the bot is in (so JS knows which guild to play sounds in)
+    guilds_data = []
+    if bot and bot.guilds:
+        for guild in bot.guilds:
+            voice = guild.voice_client
+            guilds_data.append(
+                {
+                    "id": guild.id,
+                    "name": guild.name,
+                    "in_voice": voice is not None,
+                }
+            )
+
+    return render_template(
+        "soundboard.html",
+        sounds=list_sounds(),
+        guilds=guilds_data,
+    )
+
+
+# ── Soundboard API ─────────────────────────────────────────────────
 
 
 @app.route("/api/sounds")
@@ -574,37 +635,25 @@ def api_soundboard(guild_id):
 
     import discord
 
-    def _play_sound():
+    async def _play_sound():
+        """Play the sound effect on the bot's event loop thread.
+
+        discord.py voice_client.play() is synchronous and must be called
+        from the bot's event loop thread to avoid thread-safety issues.
+        """
         try:
             source = discord.FFmpegPCMAudio(
                 path,
                 before_options="-nostdin",
                 options="-vn",
             )
-            # Play on top of current audio (if something is playing, we steal the source)
-            # discord.py allows playing a new source which replaces the old one.
-            # Instead we want to overlay. The trick: we use a second FFmpeg process
-            # that writes to a pipe, but that's complex. Simpler: just play it — it
-            # interrupts the current song briefly, then the after callback resumes.
-            # Better approach: create a combined source.
-            # For now: just play it — the DJ drops work best as brief interruptions.
             guild.voice_client.play(source)
             return True
         except Exception as e:
             logging.error(f"Soundboard: {e}")
             return False
 
-    # Run in the bot's event loop
-    if bot and bot.loop:
-        future = asyncio.run_coroutine_threadsafe(
-            bot.loop.run_in_executor(None, _play_sound), bot.loop
-        )
-        try:
-            result = future.result(timeout=5)
-        except Exception:
-            result = False
-    else:
-        result = False
+    result = _run_async(_play_sound())
 
     if result:
         return jsonify({"ok": True})

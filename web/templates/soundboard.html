@@ -1,0 +1,210 @@
+{% extends "base.html" %}
+{% block title %}Soundboard{% endblock %}
+{% block content %}
+<h1 style="margin-bottom: 8px;">🎛️ {{ bot_name }} Soundboard</h1>
+<p style="color: var(--text-muted); margin-bottom: 24px;">
+    Play sound effects, upload new ones, or remove ones you don't need.
+    Sounds play in the first voice channel the bot is connected to.
+</p>
+
+<!-- Toast notification -->
+<div id="toast" style="display:none; position:fixed; bottom:24px; right:24px; padding:12px 20px; border-radius:8px; font-size:14px; font-weight:500; z-index:9999; transition: opacity 0.3s;"></div>
+
+<!-- Upload -->
+<div class="card" style="margin-bottom: 24px;">
+    <div class="card-header">
+        <h2><span class="icon">📤</span> Upload Sound</h2>
+        <span style="font-size: 12px; color: var(--text-muted);">.mp3 · .wav · .ogg · .flac · max 16MB</span>
+    </div>
+    <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+        <input type="file" id="sound-upload-input" accept=".mp3,.wav,.ogg,.flac" onchange="uploadSound(this)" style="display:none;">
+        <button class="btn btn-primary" onclick="document.getElementById('sound-upload-input').click()">📎 Choose File</button>
+        <span id="upload-status" style="font-size: 13px; color: var(--text-muted);">No file selected</span>
+    </div>
+</div>
+
+<!-- Soundboard grid -->
+<div class="card">
+    <div class="card-header">
+        <h2><span class="icon">🔊</span> Sounds</h2>
+        <span style="font-size: 12px; color: var(--text-muted);">{{ sounds|length }} sound{{ 's' if sounds|length != 1 else '' }} loaded</span>
+    </div>
+
+    {% if sounds %}
+    <div class="soundboard-grid">
+    {% for s in sounds %}
+        <div class="soundboard-item">
+            <button class="soundboard-btn" onclick="playSound('{{ s.id }}')" title="Play {{ s.name }}">
+                {{ s.name }}
+            </button>
+            <button class="btn btn-icon btn-danger soundboard-delete" onclick="deleteSound('{{ s.id }}')" title="Delete {{ s.name }}">✕</button>
+        </div>
+    {% endfor %}
+    </div>
+    {% else %}
+    <div style="text-align: center; padding: 40px; color: var(--text-muted);">
+        <p style="font-size: 36px; margin-bottom: 12px;">🔇</p>
+        <p>No sounds yet. Upload one above!</p>
+        <p style="font-size: 12px; margin-top: 8px;">Drop .mp3, .wav, .ogg, or .flac files into the <code>sounds/</code> folder, or use the upload button.</p>
+    </div>
+    {% endif %}
+</div>
+
+<p style="color: var(--text-muted); font-size: 12px; margin-top: 24px; text-align: center;">
+    💡 Tip: Use <code>{sound:filename}</code> (without extension) in DJ lines to play sounds after the DJ speaks.
+</p>
+
+<!-- ==================== STYLES ==================== -->
+<style>
+.soundboard-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+.soundboard-item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+.soundboard-btn {
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    padding: 12px 22px;
+    border-radius: var(--radius);
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+.soundboard-btn:hover {
+    border-color: var(--purple);
+    background: rgba(168, 85, 247, 0.1);
+    color: var(--purple);
+    transform: scale(1.05);
+}
+.soundboard-btn:active {
+    transform: scale(0.95);
+    background: var(--purple);
+    color: white;
+}
+.soundboard-delete {
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+.soundboard-item:hover .soundboard-delete {
+    opacity: 1;
+}
+
+@media (max-width: 768px) {
+    .soundboard-grid { gap: 6px; }
+    .soundboard-btn { padding: 10px 16px; font-size: 13px; }
+    .soundboard-delete { opacity: 1; }
+}
+</style>
+
+<!-- ==================== SCRIPTS ==================== -->
+<script>
+// ── Toast ─────────────────────────────────────────────────
+function showToast(msg, type) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.style.display = 'block';
+    t.style.opacity = '1';
+    t.style.background = type === 'error' ? 'var(--danger)' : 'var(--success)';
+    t.style.color = 'white';
+    t.style.border = type === 'error' ? '1px solid var(--danger)' : '1px solid var(--success)';
+    clearTimeout(t._timer);
+    t._timer = setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.style.display = 'none', 300); }, 2500);
+}
+
+// ── Soundboard Guild Detection ────────────────────────────
+// Guilds where the bot is in voice, injected from the server.
+const soundboardGuilds = [
+    {% for g in guilds %}
+    {% if g.in_voice %}
+    '{{ g.id }}',
+    {% endif %}
+    {% endfor %}
+];
+
+function pickSoundboardGuild() {
+    return soundboardGuilds.length > 0 ? soundboardGuilds[0] : null;
+}
+
+async function playSound(soundId) {
+    const guildId = pickSoundboardGuild();
+    if (!guildId) {
+        showToast('Bot is not in any voice channel', 'error');
+        return;
+    }
+    try {
+        const res = await fetch('/api/' + guildId + '/soundboard', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sound: soundId })
+        });
+        const data = await res.json();
+        if (data.ok) {
+            showToast('🔊 ' + soundId.replace(/\.\w+$/, ''), 'success');
+        } else {
+            showToast(data.error || 'Sound failed', 'error');
+        }
+    } catch (e) {
+        showToast('Sound failed: ' + e.message, 'error');
+    }
+}
+
+async function uploadSound(input) {
+    if (!input.files || !input.files[0]) return;
+    const file = input.files[0];
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const status = document.getElementById('upload-status');
+    status.textContent = '📤 Uploading ' + file.name + '...';
+    status.style.color = 'var(--warning)';
+
+    try {
+        const res = await fetch('/api/sounds/upload', { method: 'POST', body: formData });
+        const data = await res.json();
+        if (data.ok) {
+            status.textContent = '✅ Uploaded: ' + data.name;
+            status.style.color = 'var(--success)';
+            showToast('✅ Uploaded: ' + data.name, 'success');
+            setTimeout(() => location.reload(), 1500);
+        } else {
+            status.textContent = '❌ ' + (data.error || 'Upload failed');
+            status.style.color = 'var(--danger)';
+            showToast(data.error || 'Upload failed', 'error');
+        }
+    } catch (e) {
+        status.textContent = '❌ Upload failed: ' + e.message;
+        status.style.color = 'var(--danger)';
+        showToast('Upload failed: ' + e.message, 'error');
+    }
+    input.value = '';
+}
+
+async function deleteSound(soundId) {
+    const name = soundId.replace(/\.\w+$/, '');
+    if (!confirm('Delete sound: ' + name + '?')) return;
+    try {
+        const res = await fetch('/api/sounds/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sound: soundId })
+        });
+        const data = await res.json();
+        if (data.ok) {
+            showToast('🗑️ Deleted: ' + name, 'success');
+            setTimeout(() => location.reload(), 1000);
+        } else {
+            showToast(data.error || 'Delete failed', 'error');
+        }
+    } catch (e) {
+        showToast('Delete failed: ' + e.message, 'error');
+    }
+}
+</script>
+{% endblock %}

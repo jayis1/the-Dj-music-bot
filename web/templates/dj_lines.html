@@ -4,14 +4,35 @@
 <h1 style="margin-bottom: 8px;">🎙️ {{ bot_name }} DJ Lines</h1>
 <p style="color: var(--text-muted); margin-bottom: 24px;">
     Add your own lines for the DJ to say. Use placeholders like
-    <code>{title}</code>, <code>{prev_title}</code>, <code>{next_title}</code>, and <code>{greeting}</code>.
+    <span class="placeholder-tag">{title}</span>,
+    <span class="placeholder-tag">{prev_title}</span>,
+    <span class="placeholder-tag">{next_title}</span>, and
+    <span class="placeholder-tag">{greeting}</span>.
     Custom lines are mixed in with the built-in ones.
 </p>
-<p style="color: var(--accent); margin-bottom: 24px; font-size: 13px;">
-    🎛️ <strong>Soundboard tags:</strong> Add <code>{sound:airhorn}</code> or <code>{sound:club_hit}</code>
-    in any line to play that sound effect after the DJ speaks. The sound name matches the filename in the <code>sounds/</code> folder (without extension).
-    Example: <code>In the mix! {sound:airhorn}</code> → DJ says "In the mix!" then plays the airhorn.
-</p>
+
+<!-- Available sounds reference -->
+<div class="card" style="margin-bottom: 24px; border-color: var(--purple);">
+    <div class="card-header">
+        <h2><span class="icon">🎛️</span> Soundboard Tags</h2>
+        <span style="font-size: 12px; color: var(--text-muted);">use in any line after the text</span>
+    </div>
+    <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 12px;">
+        Add <span class="sound-tag">🔊 soundname</span> in any line to play that sound effect
+        <strong>after</strong> the DJ speaks. The sound name matches the filename in the
+        <code>sounds/</code> folder (without extension).
+    </p>
+    <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px;">
+        Example: <code>In the mix! <span class="sound-tag">🔊 airhorn</span></code> → DJ says "In the mix!" then plays the airhorn.
+    </p>
+    <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+        <span style="font-size: 12px; color: var(--text-muted); align-self: center;">Available:</span>
+        {% for s in sounds %}
+        {% set sound_base = s.id.split('.')[0] %}
+        <span class="sound-tag-ref" onclick="navigator.clipboard.writeText('{sound:{{ sound_base }}}');this.textContent='Copied!';setTimeout(()=>this.textContent='🔊 {{ s.name }}',1200)">🔊 {{ s.name }}</span>
+        {% endfor %}
+    </div>
+</div>
 
 <div class="card">
     <h2 style="margin-bottom: 16px;">➕ Add New Line</h2>
@@ -26,10 +47,11 @@
     </form>
     <div class="placeholders-hint">
         <strong>Available placeholders:</strong>
-        <code>{title}</code> = current song ·
-        <code>{prev_title}</code> = last song ·
-        <code>{next_title}</code> = next song ·
-        <code>{greeting}</code> = time-based greeting (intros only)
+        <span class="placeholder-tag">{title}</span> = current song ·
+        <span class="placeholder-tag">{prev_title}</span> = last song ·
+        <span class="placeholder-tag">{next_title}</span> = next song ·
+        <span class="placeholder-tag">{greeting}</span> = time-based greeting (intros only) ·
+        <span class="sound-tag">🔊 name</span> = play sound effect
     </div>
 </div>
 
@@ -43,13 +65,13 @@
     <ul class="line-list">
         {% for line in cat.builtin %}
         <li>
-            <span class="line-text">{{ line }}</span>
+            <span class="line-text">{{ line|highlight_placeholders|safe }}</span>
             <span class="line-badge builtin">built-in</span>
         </li>
         {% endfor %}
         {% for line in cat.custom %}
         <li>
-            <span class="line-text">{{ line }}</span>
+            <span class="line-text">{{ line|highlight_placeholders|safe }}</span>
             <span class="line-badge custom">custom</span>
             <div class="actions">
                 <form method="POST" action="{{ url_for('dj_lines_remove') }}" style="display:inline;">
@@ -66,4 +88,56 @@
     </ul>
 </div>
 {% endfor %}
+
+<style>
+/* Sound tag highlights in DJ lines */
+.sound-tag {
+    display: inline-block;
+    background: rgba(168, 85, 247, 0.15);
+    color: var(--purple);
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 600;
+    font-family: monospace;
+    white-space: nowrap;
+}
+
+.placeholder-tag {
+    display: inline-block;
+    background: rgba(59, 130, 246, 0.12);
+    color: var(--accent);
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 500;
+    font-family: monospace;
+    white-space: nowrap;
+}
+
+/* Clickable sound name reference chips */
+.sound-tag-ref {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: var(--bg-primary);
+    border: 1px solid var(--purple);
+    color: var(--purple);
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-family: monospace;
+    cursor: pointer;
+    transition: all 0.15s;
+    user-select: all;
+}
+.sound-tag-ref:hover {
+    background: rgba(168, 85, 247, 0.15);
+    transform: scale(1.05);
+}
+.sound-tag-ref:active {
+    background: var(--purple);
+    color: white;
+}
+</style>
 {% endblock %}

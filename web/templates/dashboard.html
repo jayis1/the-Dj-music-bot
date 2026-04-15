@@ -15,33 +15,9 @@
     <div style="display: flex; align-items: center; gap: 16px;">
         <span style="color: var(--text-muted); font-size: 13px;">{{ guild_count }} server{{ 's' if guild_count != 1 else '' }}</span>
         <a href="{{ url_for('dj_lines') }}" class="btn">🎙️ DJ Lines</a>
+        <a href="{{ url_for('soundboard') }}" class="btn">🎛️ Soundboard</a>
     </div>
 </div>
-
-<!-- ==================== SOUNDBOARD PANEL ==================== -->
-{% if sounds %}
-<div class="card" style="margin-bottom: 24px;">
-    <div class="card-header">
-        <h2><span class="icon">🎛️</span> Soundboard</h2>
-        <span style="font-size: 12px; color: var(--text-muted);">{{ sounds|length }} sounds loaded</span>
-    </div>
-    <div class="soundboard-grid">
-    {% for s in sounds %}
-        <button class="soundboard-btn" onclick="playSound('{{ s.id }}')" title="{{ s.name }}">
-            {{ s.name }}
-        </button>
-    {% endfor %}
-    </div>
-    <!-- Upload + manage sounds -->
-    <div style="margin-top: 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
-        <input type="file" id="sound-upload-input" accept=".mp3,.wav,.ogg,.flac" onchange="uploadSound(this)" style="display:none;">
-        <button class="btn" style="font-size: 12px;" onclick="document.getElementById('sound-upload-input').click()">📤 Upload Sound</button>
-        {% for s in sounds %}
-        <button class="btn btn-icon btn-danger" style="font-size: 11px;" onclick="deleteSound('{{ s.id }}')" title="Delete {{ s.name }}">✕ {{ s.name }}</button>
-        {% endfor %}
-    </div>
-</div>
-{% endif %}
 
 <!-- ==================== GUILD CARDS ==================== -->
 {% for g in guilds %}
@@ -240,35 +216,6 @@
 
 <!-- ==================== STYLES ==================== -->
 <style>
-/* Soundboard */
-.soundboard-grid {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-}
-.soundboard-btn {
-    background: var(--bg-primary);
-    border: 1px solid var(--border);
-    color: var(--text-primary);
-    padding: 10px 18px;
-    border-radius: var(--radius);
-    font-size: 13px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.15s;
-}
-.soundboard-btn:hover {
-    border-color: var(--purple);
-    background: rgba(168, 85, 247, 0.1);
-    color: var(--purple);
-    transform: scale(1.05);
-}
-.soundboard-btn:active {
-    transform: scale(0.95);
-    background: var(--purple);
-    color: white;
-}
-
 /* Queue drag handle */
 .queue-drag {
     color: var(--text-muted);
@@ -382,8 +329,6 @@
 
 /* Responsive */
 @media (max-width: 768px) {
-    .soundboard-grid { gap: 4px; }
-    .soundboard-btn { padding: 8px 12px; font-size: 12px; }
 }
 </style>
 
@@ -401,74 +346,6 @@ function showToast(msg, type) {
     t.style.border = type === 'error' ? '1px solid var(--danger)' : '1px solid var(--success)';
     clearTimeout(t._timer);
     t._timer = setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.style.display = 'none', 300); }, 2500);
-}
-
-// ── Soundboard ────────────────────────────────────────────
-// Build a list of guild IDs where the bot is in a voice channel.
-// Use the first one for soundboard playback.
-const soundboardGuilds = [
-    {% for g in guilds %}
-    {% if g.in_voice %}
-    '{{ g.id }}',
-    {% endif %}
-    {% endfor %}
-];
-
-function getSoundboardGuild() {
-    // Return the first guild where the bot is in voice.
-    // This is evaluated at call time so it's always current.
-    return soundboardGuilds.length > 0 ? soundboardGuilds[0] : null;
-}
-
-async function playSound(soundId) {
-    const guildId = getSoundboardGuild();
-    if (!guildId) {
-        showToast('Bot is not in any voice channel', 'error');
-        return;
-    }
-    try {
-        const res = await fetch('/api/' + guildId + '/soundboard', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ sound: soundId })
-        });
-        const data = await res.json();
-        if (data.ok) showToast('🔊 ' + soundId.replace(/\.\w+$/, ''), 'success');
-        else showToast(data.error || 'Sound failed', 'error');
-    } catch (e) { showToast('Sound failed: ' + e.message, 'error'); }
-}
-
-async function uploadSound(input) {
-    if (!input.files || !input.files[0]) return;
-    const file = input.files[0];
-    const formData = new FormData();
-    formData.append('file', file);
-    try {
-        showToast('📤 Uploading ' + file.name + '...', 'success');
-        const res = await fetch('/api/sounds/upload', { method: 'POST', body: formData });
-        const data = await res.json();
-        if (data.ok) {
-            showToast('✅ Uploaded: ' + data.name, 'success');
-            setTimeout(() => location.reload(), 1500);
-        } else {
-            showToast(data.error || 'Upload failed', 'error');
-        }
-    } catch (e) { showToast('Upload failed: ' + e.message, 'error'); }
-    input.value = '';
-}
-
-async function deleteSound(soundId) {
-    if (!confirm('Delete sound: ' + soundId.replace(/\.\w+$/, '') + '?')) return;
-    try {
-        const res = await fetch('/api/sounds/delete', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ sound: soundId })
-        });
-        const data = await res.json();
-        if (data.ok) { showToast('Deleted sound', 'success'); setTimeout(() => location.reload(), 1000); }
-        else showToast(data.error || 'Delete failed', 'error');
-    } catch (e) { showToast('Delete failed: ' + e.message, 'error'); }
 }
 
 // ── Playback Controls ─────────────────────────────────────

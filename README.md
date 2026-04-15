@@ -205,3 +205,19 @@ All combining filter scenarios have been verified to produce the correct FFmpeg 
 | Crossfade 3s only | `-vn -filter:a "afade=t=in:st=0:d=3"` | ✅ |
 | Speed 1.5x + crossfade | `-vn -filter:a "atempo=1.5+afade=t=in:st=0:d=3"` | ✅ |
 | Speed 0.75x + crossfade 5s | `-vn -filter:a "atempo=0.75+afade=t=in:st=0:d=5"` | ✅ |
+
+### Web Dashboard & DJ Lines Refactor
+
+**1. Fixed Soundboard Play Endpoint:**
+The `/api/<guild_id>/soundboard` endpoint was previously using a broken nested-async pattern that caused it to fail silently and return HTML error pages, triggering JSON parse errors in the frontend. It has been replaced with a streamlined `async def _play_sound()` routine that directly invokes the voice client cleanly.
+
+**2. Dedicated Soundboard Sidebar Page:**
+The Soundboard logic has been decoupled from the primary dashboard into its own dedicated page (`/soundboard`). This cleans up the main view and provides a dedicated space for upload cards, file previews, and a play button grid.
+
+**3. Expanded DJ Lines & Sound Tags:**
+The DJ now has access to 172 completely unique built-in broadcast lines, up from 98. More importantly, 74 of these lines natively embed the `{sound:name}` tag architecture (leveraging all 9 built-in sounds: airhorn, air_raid, applause, button_press, club_hit, dj_drop, in_the_mix, record_scratch, turntable_start). 
+
+*(Note: `STATION_IDS` now require double-braces `{{sound:name}}` due to concurrent f-string interpolation).*
+
+**4. Enhanced DJ Lines Dashboard:**
+The `/dj-lines` page now includes a comprehensive Soundboard Tags reference card. Placeholders like `{title}` render as blue graphical badges, while `{sound:name}` tags render as purple interactive badges, giving users an immediate visual understanding of how the dynamic prompt generation works under the hood.
