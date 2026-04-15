@@ -41,7 +41,7 @@ MBot features a built-in web dashboard (powered by Flask) that starts automatica
 - **Drag-and-Drop Queue Reordering:** Rearrange the upcoming songs effortlessly by dragging and dropping them, or use the "Play Next" shortcut to move them straight to the top of the queue.
 - **Web-based "Add to Queue":** A built-in search bar allows you to paste YouTube links or search queries directly from the dashboard to instantly queue songs.
 - **Live Lyrics Panel:** Automatically fetches and displays lyrics for the currently playing track via `syncedlyrics`.
-- **Save / Load Custom Playlists (Presets):** Save your perfectly crafted 25-song queues directly into a preset JSON, and reload them with one click later.
+- **Save / Load Custom Playlists (Presets):** Save your perfectly crafted queues directly into a preset JSON, and reload them with one click later.
 - **Instant DJ Soundboard:** Play classic radio Soundboard drops (Airhorns, Record Scratches, Applause...) on top of the music live!
 - **Gapless Crossfade Playback:** Configure a dynamic crossfade overlap (e.g. 3 seconds) using `CROSSFADE_DURATION` in `config.py` for a flawless, club-style transition between songs!
 - **DJ Voice Selector:** Easily switch the Edge-TTS radio host's voice dynamically via a drop-down menu.
@@ -73,8 +73,8 @@ WEB_PORT=8080
 | `?leave` | `?leave` | Disconnects the bot from voice and cleans up |
 | `?search` | `?search <query>` | Searches YouTube and shows the top 10 results |
 | `?play` | `?play <URL/query>` | Plays audio from YouTube (link or query), Search result number, or Suno URL |
-| `?playlist` | `?playlist <URL>` | Queues up to 25 songs from a YouTube playlist |
-| `?radio` | `?radio <URL>` | Queues up to 100 songs for long sessions |
+| `?playlist` | `?playlist <URL>` | Queues an entire YouTube playlist |
+| `?radio` | `?radio <URL>` | Queues an entire YouTube playlist for long sessions |
 | `?queue` | `?queue` | Displays all songs currently in the queue |
 | `?skip` | `?skip` | Skips to the next track in the queue |
 | `?stop` | `?stop` | Stops playback immediately and clears the entire queue |

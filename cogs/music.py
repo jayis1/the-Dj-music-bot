@@ -367,8 +367,9 @@ class Music(commands.Cog):
                     # Fast two-pass extraction:
                     # Pass 1: extract_flat=True — instant metadata only (title, ID)
                     # Pass 2: happens in play_next — resolve stream URL per-song
+                    # No playlist_items limit — load the entire playlist
                     result = await PlaceholderTrack.from_playlist_url(
-                        url, loop=self.bot.loop, playlist_items="1-25"
+                        url, loop=self.bot.loop
                     )
                     logging.info(f"Playlist extraction returned {len(result)} entries")
 
@@ -448,9 +449,10 @@ class Music(commands.Cog):
                 async with ctx.typing():
                     logging.info(f"Fast-extracting radio playlist from URL: {url}")
 
-                    # Fast two-pass extraction (same as ?playlist but more songs)
+                    # Fast two-pass extraction (same as ?playlist — entire playlist)
+                    # No playlist_items limit — load the entire playlist
                     result = await PlaceholderTrack.from_playlist_url(
-                        url, loop=self.bot.loop, playlist_items="1-100"
+                        url, loop=self.bot.loop
                     )
                     logging.info(f"Radio extraction returned {len(result)} entries")
 
