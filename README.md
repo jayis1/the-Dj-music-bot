@@ -36,6 +36,7 @@ MBot features a built-in web dashboard (powered by Flask) that starts automatica
 
 **Dashboard Features:**
 - **Live Status & Remote Control:** The dashboard isn't just for viewing! You can skip, pause, play, or stop the currently playing song directly from your browser.
+- **Interactive UI & Toast Notifications:** Enjoy smooth real-time feedback with loading spinners and stylish pop-up notifications whenever you trigger actions!
 - **Audio Sliders:** Adjust the bot's volume and playback speed smoothly on the fly.
 - **Live Queue Manager:** View the full upcoming queue and remove specific songs with a single click.
 - **Web-based "Add to Queue":** A built-in search bar allows you to paste YouTube links or search queries directly from the dashboard to instantly queue songs.

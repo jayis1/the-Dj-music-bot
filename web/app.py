@@ -204,15 +204,15 @@ def api_volume(guild_id):
     music = _get_music_cog()
     if not music:
         return jsonify({"error": "Music cog not loaded"}), 503
-    vol = request.json.get("volume")
-    if vol is None:
-        try:
-            vol = int(request.form.get("volume", 100))
-        except (ValueError, TypeError):
-            return jsonify({"error": "Invalid volume"}), 400
-    vol = max(0, min(200, int(vol)))
+    data = request.json or request.form
+    try:
+        vol = int(data.get("volume", 100))
+    except (ValueError, TypeError):
+        return jsonify({"error": "Invalid volume"}), 400
+    vol = max(0, min(200, vol))
     music.current_volume[guild_id] = vol / 100.0
-    guild = bot.get_guild(guild_id)
+    # Apply to currently playing source
+    guild = bot.get_guild(guild_id) if bot else None
     if guild and guild.voice_client and guild.voice_client.source:
         guild.voice_client.source.volume = vol / 100.0
     return jsonify({"ok": True, "volume": vol})
@@ -223,9 +223,10 @@ def api_speed(guild_id):
     music = _get_music_cog()
     if not music:
         return jsonify({"error": "Music cog not loaded"}), 503
+    data = request.json or request.form
     speed_steps = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0]
     try:
-        speed = float(request.json.get("speed", 1.0))
+        speed = float(data.get("speed", 1.0))
     except (ValueError, TypeError):
         return jsonify({"error": "Invalid speed"}), 400
     # Snap to nearest step
@@ -320,75 +321,73 @@ def api_play(guild_id):
         guild = bot.get_guild(guild_id)
         if not guild:
             return "Guild not found"
-        # Find a text channel to create a context
-        channel = guild.text_channels[0] if guild.text_channels else None
-        if not channel:
-            return "No text channel"
-        # Get a member context (use the bot itself)
-        member = guild.me
-        from discord.ext import commands
 
-        ctx = (
-            await bot.get_context(channel.get_partial_message(channel.last_message_id))
-            if channel.last_message_id
-            else None
-        )
-        if ctx is None:
-            # Fallback: create a minimal context
-            class FakeCtx:
-                pass
-
-            ctx = FakeCtx()
-            ctx.guild = guild
-            ctx.voice_client = guild.voice_client
-            ctx.author = member
-            ctx.channel = channel
-            ctx.bot = bot
-            ctx.command = None
-
-        # Join voice if needed
+        # Join a voice channel if not already in one
+        # Find the first human in a voice channel
+        voice_channel = None
         for member in guild.members:
             if not member.bot and member.voice and member.voice.channel:
-                if not guild.voice_client:
-                    await member.voice.channel.connect(self_deaf=True)
-                elif not guild.voice_client.is_connected():
-                    await guild.voice_client.disconnect(force=True)
-                    await asyncio.sleep(0.5)
-                    await member.voice.channel.connect(self_deaf=True)
+                voice_channel = member.voice.channel
                 break
 
-        from utils.suno import is_suno_url, get_suno_track
-        from cogs.youtube import YTDLSource, YTDL_FORMAT_OPTIONS, PlaceholderTrack
+        if not voice_channel:
+            return "No one in a voice channel"
+
+        if not guild.voice_client:
+            await voice_channel.connect(self_deaf=True)
+        elif not guild.voice_client.is_connected():
+            await guild.voice_client.disconnect(force=True)
+            await asyncio.sleep(0.5)
+            await voice_channel.connect(self_deaf=True)
 
         queue = await music.get_queue(guild_id)
 
-        # Suno URL
+        from utils.suno import is_suno_url, get_suno_track
+        from cogs.youtube import YTDLSource, PlaceholderTrack
+
+        # Determine URL type and extract
         if is_suno_url(query):
             track = await get_suno_track(query)
             if not track:
                 return "Could not resolve Suno URL"
             await queue.put(track)
-        # YouTube playlist
+            count = 1
         elif "playlist" in query or "list=" in query:
             tracks = await PlaceholderTrack.from_playlist_url(
                 query, loop=bot.loop, playlist_items="1-25"
             )
             for t in tracks:
                 await queue.put(t)
-            return f"Added {len(tracks)} songs from playlist"
+            count = len(tracks)
         else:
-            # Single video or search
             result = await YTDLSource.from_url(query, loop=bot.loop)
             for r in result:
                 await queue.put(r)
+            count = len(result)
 
-        if not guild.voice_client or not guild.voice_client.is_playing():
+        # Start playback if nothing is playing
+        if not guild.voice_client.is_playing() and not guild.voice_client.is_paused():
+            # Build a minimal context object for play_next
+            class WebCtx:
+                pass
+
+            ctx = WebCtx()
+            ctx.guild = guild
+            ctx.voice_client = guild.voice_client
+            ctx.channel = guild.text_channels[0] if guild.text_channels else None
+            ctx.author = guild.me
+            # Cancel any inactivity timer
+            if guild_id in music.inactivity_timers:
+                music.inactivity_timers[guild_id].cancel()
+                del music.inactivity_timers[guild_id]
             await music.play_next(ctx)
 
-        return "OK"
+        return f"Added {count} track{'s' if count != 1 else ''}"
 
     result = _run_async(_play())
-    if result and "not found" in str(result).lower():
+    if result is None:
+        return jsonify({"error": "Request timed out"}), 504
+    if "not found" in str(result).lower() or "no one" in str(result).lower():
         return jsonify({"error": result}), 404
     return jsonify({"ok": True, "result": str(result)})
 

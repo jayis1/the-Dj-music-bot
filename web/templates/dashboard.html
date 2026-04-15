@@ -4,6 +4,9 @@
 <h1 style="margin-bottom: 8px;">📡 {{ bot_name }} Mission Control</h1>
 <p style="color: var(--text-muted); margin-bottom: 32px;">Live status & remote control for {{ bot_name }}</p>
 
+<!-- Toast notification -->
+<div id="toast" style="display:none; position:fixed; bottom:24px; right:24px; padding:12px 20px; border-radius:8px; font-size:14px; font-weight:500; z-index:9999; transition: opacity 0.3s;"></div>
+
 <div class="status-bar">
     <div class="status-indicator">
         <div class="status-dot {% if bot_user != 'Not connected' %}{% else %}offline{% endif %}"></div>
@@ -16,7 +19,7 @@
 </div>
 
 {% for g in guilds %}
-<div class="card guild-card" id="guild-{{ g.id }}">
+<div class="card guild-card" id="guild-{{ g.id }}" data-gid="{{ g.id }}">
     <!-- Guild header -->
     <div class="guild-header">
         <div class="guild-icon">{{ g.name[0] }}</div>
@@ -56,10 +59,10 @@
     <!-- Playback controls -->
     {% if g.in_voice %}
     <div class="controls" style="margin-bottom: 16px;">
-        <button class="btn" onclick="apiAction({{ g.id }}, 'pause')" title="Play / Pause">{% if g.playing %}⏸️ Pause{% elif g.paused %}▶️ Resume{% else %}▶️ Play{% endif %}</button>
-        <button class="btn" onclick="apiAction({{ g.id }}, 'skip')" title="Skip">⏭️ Skip</button>
-        <button class="btn btn-danger" onclick="apiAction({{ g.id }}, 'stop')" title="Stop">⏹️ Stop</button>
-        <button class="btn" onclick="toggleDj({{ g.id }})" title="Toggle DJ">{% if g.dj_enabled %}🎙️ DJ On{% else %}🎙️ DJ Off{% endif %}</button>
+        <button class="btn" onclick="apiAction(this, '{{ g.id }}', 'pause')" title="Play / Pause">{% if g.playing %}⏸️ Pause{% elif g.paused %}▶️ Resume{% else %}▶️ Play{% endif %}</button>
+        <button class="btn" onclick="apiAction(this, '{{ g.id }}', 'skip')" title="Skip">⏭️ Skip</button>
+        <button class="btn btn-danger" onclick="apiAction(this, '{{ g.id }}', 'stop')" title="Stop">⏹️ Stop</button>
+        <button class="btn" onclick="toggleDj(this, '{{ g.id }}')" title="Toggle DJ">{% if g.dj_enabled %}🎙️ DJ On{% else %}🎙️ DJ Off{% endif %}</button>
     </div>
 
     <!-- Volume slider -->
@@ -70,7 +73,7 @@
         <input type="range" min="0" max="200" value="{{ g.volume }}"
                class="slider" id="vol-{{ g.id }}"
                oninput="document.getElementById('vol-label-{{ g.id }}').textContent = this.value + '%'"
-               onchange="setVolume({{ g.id }}, this.value)">
+               onchange="setVolume('{{ g.id }}', this.value)">
     </div>
 
     <!-- Speed slider -->
@@ -81,18 +84,18 @@
         <input type="range" min="0" max="7" value="{{ [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0].index(g.speed) if g.speed in [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0] else 3 }}"
                class="slider" id="spd-{{ g.id }}"
                oninput="document.getElementById('spd-label-{{ g.id }}').textContent = [0.25,0.5,0.75,1.0,1.25,1.5,1.75,2.0][this.value] + 'x'"
-               onchange="setSpeed({{ g.id }}, [0.25,0.5,0.75,1.0,1.25,1.5,1.75,2.0][this.value])">
+               onchange="setSpeed('{{ g.id }}', [0.25,0.5,0.75,1.0,1.25,1.5,1.75,2.0][this.value])">
     </div>
 
     <!-- DJ Voice dropdown -->
     {% if g.dj_enabled %}
     <div style="margin-bottom: 16px;">
         <label style="font-size: 12px; color: var(--text-muted);">🗣️ DJ Voice:</label>
-        <select id="voice-{{ g.id }}" class="voice-select" onchange="setDjVoice({{ g.id }}, this.value)">
+        <select id="voice-{{ g.id }}" class="voice-select" onchange="setDjVoice('{{ g.id }}', this.value)">
             <option value="">Loading voices...</option>
         </select>
         <script>
-        loadVoices({{ g.id }}, "{{ g.dj_voice }}");
+        loadVoices('{{ g.id }}', "{{ g.dj_voice }}");
         </script>
     </div>
     {% endif %}
@@ -143,7 +146,7 @@
             </div>
             <div class="queue-actions">
                 <span class="queue-pos">{{ loop.index }}</span>
-                <button class="btn btn-icon btn-danger" onclick="removeFromQueue({{ g.id }}, {{ loop.index0 }})" title="Remove">✕</button>
+                <button class="btn btn-icon btn-danger" onclick="removeFromQueue('{{ g.id }}', {{ loop.index0 }})" title="Remove">✕</button>
             </div>
         </div>
         {% endfor %}
@@ -261,60 +264,102 @@
 </style>
 
 <script>
+// ── Toast notifications ─────────────────────────────────
+function showToast(msg, type) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.style.display = 'block';
+    t.style.opacity = '1';
+    t.style.background = type === 'error' ? 'var(--danger)' : 'var(--success)';
+    t.style.color = type === 'error' ? 'white' : 'white';
+    t.style.border = type === 'error' ? '1px solid var(--danger)' : '1px solid var(--success)';
+    clearTimeout(t._timer);
+    t._timer = setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.style.display = 'none', 300); }, 2500);
+}
+
 // ── Playback Controls ──────────────────────────────────
-async function apiAction(guildId, action) {
+async function apiAction(btn, guildId, action) {
+    btn.disabled = true;
+    const origText = btn.textContent;
+    btn.textContent = '⏳';
     try {
-        const res = await fetch(`/api/${guildId}/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+        const res = await fetch('/api/' + guildId + '/' + action, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
         const data = await res.json();
-        if (data.ok) setTimeout(() => location.reload(), 500);
-        else alert(data.error || 'Action failed');
-    } catch (e) { alert('Request failed: ' + e); }
+        if (data.ok) {
+            showToast(action.charAt(0).toUpperCase() + action.slice(1) + ' ✓', 'success');
+            setTimeout(() => location.reload(), 1500);
+        } else {
+            showToast(data.error || 'Action failed', 'error');
+            btn.disabled = false;
+            btn.textContent = origText;
+        }
+    } catch (e) {
+        showToast('Request failed: ' + e.message, 'error');
+        btn.disabled = false;
+        btn.textContent = origText;
+    }
 }
 
 async function setVolume(guildId, value) {
     try {
-        await fetch(`/api/${guildId}/volume`, {
+        await fetch('/api/' + guildId + '/volume', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ volume: parseInt(value) })
         });
-    } catch (e) { console.error(e); }
+        showToast('Volume: ' + value + '%', 'success');
+    } catch (e) { showToast('Volume failed', 'error'); }
 }
 
 async function setSpeed(guildId, value) {
     try {
-        await fetch(`/api/${guildId}/speed`, {
+        await fetch('/api/' + guildId + '/speed', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ speed: value })
         });
-    } catch (e) { console.error(e); }
+        showToast('Speed: ' + value + 'x', 'success');
+    } catch (e) { showToast('Speed failed', 'error'); }
 }
 
-async function toggleDj(guildId) {
+async function toggleDj(btn, guildId) {
+    btn.disabled = true;
+    const origText = btn.textContent;
+    btn.textContent = '⏳';
     try {
-        const res = await fetch(`/api/${guildId}/dj_toggle`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+        const res = await fetch('/api/' + guildId + '/dj_toggle', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
         const data = await res.json();
-        if (data.ok) setTimeout(() => location.reload(), 500);
-        else alert(data.error || 'DJ toggle failed');
-    } catch (e) { alert('Request failed: ' + e); }
+        if (data.ok) {
+            showToast(data.dj_enabled ? '🎙️ DJ On' : '🎙️ DJ Off', 'success');
+            setTimeout(() => location.reload(), 1500);
+        } else {
+            showToast(data.error || 'DJ toggle failed', 'error');
+            btn.disabled = false;
+            btn.textContent = origText;
+        }
+    } catch (e) {
+        showToast('Request failed: ' + e.message, 'error');
+        btn.disabled = false;
+        btn.textContent = origText;
+    }
 }
 
 async function setDjVoice(guildId, voice) {
     try {
-        await fetch(`/api/${guildId}/dj_voice`, {
+        await fetch('/api/' + guildId + '/dj_voice', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ voice: voice })
         });
-    } catch (e) { console.error(e); }
+        showToast('Voice: ' + voice.split('-').pop(), 'success');
+    } catch (e) { showToast('Voice change failed', 'error'); }
 }
 
 async function loadVoices(guildId, currentVoice) {
     const select = document.getElementById('voice-' + guildId);
     if (!select) return;
     try {
-        const res = await fetch(`/api/${guildId}/voices`);
+        const res = await fetch('/api/' + guildId + '/voices');
         const data = await res.json();
         select.innerHTML = '';
         if (data.voices && data.voices.length > 0) {
@@ -335,22 +380,28 @@ async function loadVoices(guildId, currentVoice) {
 
 async function removeFromQueue(guildId, index) {
     try {
-        const res = await fetch(`/api/${guildId}/queue/${index}`, { method: 'DELETE' });
+        const res = await fetch('/api/' + guildId + '/queue/' + index, { method: 'DELETE' });
         const data = await res.json();
-        if (data.ok) setTimeout(() => location.reload(), 500);
-        else alert(data.error || 'Remove failed');
-    } catch (e) { alert('Request failed: ' + e); }
+        if (data.ok) {
+            showToast('Removed from queue', 'success');
+            setTimeout(() => location.reload(), 1000);
+        } else {
+            showToast(data.error || 'Remove failed', 'error');
+        }
+    } catch (e) { showToast('Request failed: ' + e.message, 'error'); }
 }
 
 async function addToQueue() {
-    const guildId = document.getElementById('search-guild').value;
+    const guildSelect = document.getElementById('search-guild');
+    const guildId = guildSelect.value;
     const query = document.getElementById('search-input').value.trim();
-    if (!query) return;
+    if (!query) { showToast('Enter a URL or search term', 'error'); return; }
+    if (!guildId) { showToast('Bot is not in any voice channel', 'error'); return; }
     const btn = document.getElementById('search-btn');
     btn.textContent = '⏳ Adding...';
     btn.disabled = true;
     try {
-        const res = await fetch(`/api/${guildId}/play`, {
+        const res = await fetch('/api/' + guildId + '/play', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ query: query })
@@ -358,16 +409,20 @@ async function addToQueue() {
         const data = await res.json();
         if (data.ok) {
             document.getElementById('search-input').value = '';
+            showToast('Added to queue!', 'success');
             setTimeout(() => location.reload(), 2000);
         } else {
-            alert(data.error || 'Failed to add');
+            showToast(data.error || 'Failed to add', 'error');
+            btn.textContent = '▶ Play';
+            btn.disabled = false;
         }
-    } catch (e) { alert('Request failed: ' + e); }
-    btn.textContent = '▶ Play';
-    btn.disabled = false;
+    } catch (e) {
+        showToast('Request failed: ' + e.message, 'error');
+        btn.textContent = '▶ Play';
+        btn.disabled = false;
+    }
 }
 
-// Enter key on search input
 document.getElementById('search-input')?.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') addToQueue();
 });
