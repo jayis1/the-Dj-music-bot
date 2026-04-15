@@ -42,7 +42,8 @@ MBot features a built-in web dashboard (powered by Flask) that starts automatica
 - **Web-based "Add to Queue":** A built-in search bar allows you to paste YouTube links or search queries directly from the dashboard to instantly queue songs.
 - **Live Lyrics Panel:** Automatically fetches and displays lyrics for the currently playing track via `syncedlyrics`.
 - **Save / Load Custom Playlists (Presets):** Save your perfectly crafted queues directly into a preset JSON, and reload them with one click later.
-- **Instant DJ Soundboard:** Play classic radio Soundboard drops (Airhorns, Record Scratches, Applause...) on top of the music live!
+- **Instant DJ Soundboard & Custom Uploads:** Play classic radio Soundboard drops on top of the music live! You can also securely upload your own custom `.mp3` or `.wav` drops directly through the web UI and manage them with ease.
+- **Smart DJ Audio Tags:** Type `{sound:filename}` anywhere inside your custom DJ lines (e.g. `In the mix! {sound:airhorn}`). The DJ will speak the intro and perfectly sequence your chosen sound effect right before the song drops!
 - **Gapless Crossfade Playback:** Configure a dynamic crossfade overlap (e.g. 3 seconds) using `CROSSFADE_DURATION` in `config.py` for a flawless, club-style transition between songs!
 - **DJ Voice Selector:** Easily switch the Edge-TTS radio host's voice dynamically via a drop-down menu.
 - **Mission Control Theme:** A sleek, dark-themed UI that auto-refreshes to keep you seamlessly synced with the Discord session.

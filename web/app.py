@@ -473,6 +473,86 @@ def api_sounds():
     return jsonify({"sounds": sounds})
 
 
+@app.route("/api/sounds/upload", methods=["POST"])
+def api_sounds_upload():
+    """Upload a sound file to the soundboard."""
+    if "file" not in request.files:
+        return jsonify({"error": "No file provided"}), 400
+
+    file = request.files["file"]
+    if not file.filename:
+        return jsonify({"error": "No filename"}), 400
+
+    # Only allow audio extensions
+    allowed_ext = {".mp3", ".wav", ".ogg", ".flac"}
+    import os
+
+    ext = os.path.splitext(file.filename)[1].lower()
+    if ext not in allowed_ext:
+        return jsonify(
+            {
+                "error": f"File type '{ext}' not allowed. Use {', '.join(sorted(allowed_ext))}"
+            }
+        ), 400
+
+    # Sanitize filename
+    safe_name = os.path.basename(file.filename)
+    # Replace spaces/unsafe chars
+    safe_name = "".join(c if c.isalnum() or c in " -_." else "_" for c in safe_name)
+    if not safe_name:
+        safe_name = f"sound{ext}"
+
+    from utils.soundboard import SOUNDS_DIR
+
+    os.makedirs(SOUNDS_DIR, exist_ok=True)
+    filepath = os.path.join(SOUNDS_DIR, safe_name)
+
+    # Don't overwrite existing files — append number if needed
+    if os.path.exists(filepath):
+        base = os.path.splitext(safe_name)[0]
+        n = 1
+        while os.path.exists(os.path.join(SOUNDS_DIR, f"{base}_{n}{ext}")):
+            n += 1
+        safe_name = f"{base}_{n}{ext}"
+        filepath = os.path.join(SOUNDS_DIR, safe_name)
+
+    try:
+        file.save(filepath)
+        logging.info(
+            f"Soundboard: Uploaded {safe_name} ({os.path.getsize(filepath)} bytes)"
+        )
+        name = (
+            os.path.splitext(safe_name)[0].replace("_", " ").replace("-", " ").title()
+        )
+        return jsonify({"ok": True, "id": safe_name, "name": name})
+    except Exception as e:
+        logging.error(f"Soundboard: Upload failed: {e}")
+        return jsonify({"error": "Upload failed"}), 500
+
+
+@app.route("/api/sounds/delete", methods=["POST"])
+def api_sounds_delete():
+    """Delete a sound from the soundboard."""
+    data = request.json or request.form
+    sound_id = data.get("sound", "").strip()
+    if not sound_id:
+        return jsonify({"error": "Sound ID required"}), 400
+
+    from utils.soundboard import get_sound_path
+
+    path = get_sound_path(sound_id)
+    if not path:
+        return jsonify({"error": f"Sound '{sound_id}' not found"}), 404
+
+    try:
+        os.remove(path)
+        logging.info(f"Soundboard: Deleted {sound_id}")
+        return jsonify({"ok": True})
+    except Exception as e:
+        logging.error(f"Soundboard: Delete failed: {e}")
+        return jsonify({"error": "Delete failed"}), 500
+
+
 @app.route("/api/<int:guild_id>/soundboard", methods=["POST"])
 def api_soundboard(guild_id):
     """Play a sound effect in a guild's voice channel."""

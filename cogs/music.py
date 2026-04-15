@@ -48,6 +48,7 @@ class Music(commands.Cog):
         self.dj_voice = {}  # guild_id -> str (Edge TTS voice name)
         self.dj_playing_tts = {}  # guild_id -> bool (prevents re-entrant TTS during skip/stop)
         self._current_tts_path = {}  # guild_id -> str|None (path to clean up after TTS playback)
+        self._dj_pending_sounds = {}  # guild_id -> list[str] (sound IDs to play after TTS, from {sound:name} tags)
 
     async def get_queue(self, guild_id):
         if guild_id not in self.song_queues:
@@ -124,6 +125,7 @@ class Music(commands.Cog):
 
         # Clean up DJ TTS state
         self.dj_playing_tts.pop(guild_id, None)
+        self._dj_pending_sounds.pop(guild_id, None)
         pending = getattr(self, "_dj_pending", {}).pop(guild_id, None)
         tts_path = self._current_tts_path.pop(guild_id, None)
         if tts_path:
@@ -1610,14 +1612,21 @@ class Music(commands.Cog):
     async def _dj_speak(self, voice_client, text: str, guild_id: int):
         """
         Generate TTS audio and play it through the voice client.
-        Does NOT block — returns immediately after TTS playback starts.
+        Also plays any {sound:name} tags found in the text after TTS finishes.
         Returns True if TTS was played, False if skipped.
         """
         if not EDGE_TTS_AVAILABLE:
             return False
 
+        # Extract {sound:name} tags before TTS so they aren't spoken aloud
+        from utils.dj import extract_sound_tags
+
+        clean_text, sound_ids = extract_sound_tags(text)
+        if sound_ids:
+            logging.info(f"DJ: Extracted sound tags: {sound_ids} for guild {guild_id}")
+
         voice = self.dj_voice.get(guild_id, config.DJ_VOICE)
-        tts_path = await generate_tts(text, voice)
+        tts_path = await generate_tts(clean_text if clean_text else text, voice)
 
         if not tts_path:
             logging.warning(f"DJ: TTS generation returned None for guild {guild_id}")
@@ -1625,6 +1634,8 @@ class Music(commands.Cog):
 
         self._current_tts_path[guild_id] = tts_path
         self.dj_playing_tts[guild_id] = True
+        # Store pending sounds to play after TTS finishes
+        self._dj_pending_sounds[guild_id] = sound_ids
 
         try:
             # TTS audio — no reconnect options needed (local file), no video
@@ -1645,7 +1656,10 @@ class Music(commands.Cog):
                     self._on_tts_done, guild_id, e
                 ),
             )
-            logging.info(f"DJ: Speaking in guild {guild_id}: {text[:80]}…")
+            display = clean_text if clean_text else text
+            logging.info(f"DJ: Speaking in guild {guild_id}: {display[:80]}…")
+            if sound_ids:
+                logging.info(f"DJ: Will play sounds after speech: {sound_ids}")
             return True
         except Exception as e:
             logging.error(f"DJ: Failed to play TTS in guild {guild_id}: {e}")
@@ -1657,7 +1671,8 @@ class Music(commands.Cog):
     def _on_tts_done(self, guild_id, error):
         """
         Called from FFmpeg's after-callback thread when TTS playback finishes.
-        Cleans up the temp file and schedules playing the actual song.
+        Cleans up the temp file, plays any pending sound effects, then
+        schedules playing the actual song.
         """
         self.dj_playing_tts[guild_id] = False
 
@@ -1669,13 +1684,78 @@ class Music(commands.Cog):
         if error:
             logging.error(f"DJ: TTS playback error for guild {guild_id}: {error}")
 
-        logging.info(f"DJ: TTS done for guild {guild_id}, scheduling song playback")
+        # Play any pending sound effects from {sound:name} tags
+        pending_sounds = self._dj_pending_sounds.pop(guild_id, [])
 
-        # Schedule the actual song playback on the event loop
-        asyncio.ensure_future(
-            self._play_song_after_dj(guild_id),
-            loop=self.bot.loop,
-        )
+        if pending_sounds:
+            logging.info(
+                f"DJ: Playing {len(pending_sounds)} sound effects for guild {guild_id}"
+            )
+            asyncio.ensure_future(
+                self._play_dj_sounds_then_song(guild_id, pending_sounds),
+                loop=self.bot.loop,
+            )
+        else:
+            logging.info(f"DJ: TTS done for guild {guild_id}, scheduling song playback")
+            asyncio.ensure_future(
+                self._play_song_after_dj(guild_id),
+                loop=self.bot.loop,
+            )
+
+    async def _play_dj_sounds_then_song(self, guild_id, sound_ids):
+        """
+        Play a sequence of sound effects, then play the pending song.
+        Each sound plays one at a time — we wait for each to finish.
+        """
+        from utils.soundboard import get_sound_path
+        import discord
+
+        guild = self.bot.get_guild(guild_id)
+        if not guild or not guild.voice_client:
+            # Voice gone — skip sounds, go straight to song
+            await self._play_song_after_dj(guild_id)
+            return
+
+        for sound_id in sound_ids:
+            path = get_sound_path(sound_id)
+            if not path:
+                logging.warning(f"DJ: Sound '{sound_id}' not found, skipping")
+                continue
+
+            try:
+                source = discord.FFmpegPCMAudio(
+                    path,
+                    before_options="-nostdin",
+                    options="-vn",
+                )
+                player = discord.PCMVolumeTransformer(source)
+                player.volume = self.current_volume.get(guild_id, 1.0)
+
+                # Play and wait for this sound to finish
+                finished = asyncio.Event()
+
+                def _after(e):
+                    if e:
+                        logging.error(f"DJ: Sound '{sound_id}' error: {e}")
+                    self.bot.loop.call_soon_threadsafe(finished.set)
+
+                guild.voice_client.play(player, after=_after)
+                logging.info(
+                    f"DJ: Playing sound effect '{sound_id}' in guild {guild_id}"
+                )
+
+                # Wait up to 10s for the sound to finish
+                try:
+                    await asyncio.wait_for(finished.wait(), timeout=10)
+                except asyncio.TimeoutError:
+                    logging.warning(f"DJ: Sound '{sound_id}' timed out")
+
+            except Exception as e:
+                logging.error(f"DJ: Failed to play sound '{sound_id}': {e}")
+                continue
+
+        # All sounds done — play the song
+        await self._play_song_after_dj(guild_id)
 
     async def _play_song_after_dj(self, guild_id):
         """

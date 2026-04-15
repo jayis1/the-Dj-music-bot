@@ -43,16 +43,16 @@ CATEGORY_LABELS = {
 
 # Which placeholders each category supports
 CATEGORY_PLACEHOLDERS = {
-    "intros": ["{greeting}", "{title}"],
-    "hype_intros": ["{title}"],
-    "hype_intros_loud": ["{title}"],
-    "outros": ["{title}"],
-    "transitions": ["{prev_title}", "{next_title}"],
-    "transitions_hype": ["{prev_title}", "{next_title}"],
-    "transitions_mellow": ["{prev_title}", "{next_title}"],
-    "outros_final": ["{title}"],
-    "station_ids": [],
-    "callouts": [],
+    "intros": ["{greeting}", "{title}", "{sound:name}"],
+    "hype_intros": ["{title}", "{sound:name}"],
+    "hype_intros_loud": ["{title}", "{sound:name}"],
+    "outros": ["{title}", "{sound:name}"],
+    "transitions": ["{prev_title}", "{next_title}", "{sound:name}"],
+    "transitions_hype": ["{prev_title}", "{next_title}", "{sound:name}"],
+    "transitions_mellow": ["{prev_title}", "{next_title}", "{sound:name}"],
+    "outros_final": ["{title}", "{sound:name}"],
+    "station_ids": ["{sound:name}"],
+    "callouts": ["{sound:name}"],
 }
 
 

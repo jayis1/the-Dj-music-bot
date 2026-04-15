@@ -32,9 +32,16 @@
         </button>
     {% endfor %}
     </div>
-    <p style="font-size: 11px; color: var(--text-muted); margin-top: 8px;">
-        Drop .mp3 files in the <code>sounds/</code> folder to add more.
-    </p>
+    <!-- Upload + manage sounds -->
+    <div style="margin-top: 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+        <label class="btn" style="cursor: pointer; font-size: 12px;">
+            📤 Upload Sound
+            <input type="file" accept=".mp3,.wav,.ogg,.flac" onchange="uploadSound(this)" style="display:none;">
+        </label>
+        {% for s in sounds %}
+        <button class="btn btn-icon btn-danger" style="font-size: 11px;" onclick="deleteSound('{{ s.id }}')" title="Delete {{ s.name }}">✕ {{ s.name }}</button>
+        {% endfor %}
+    </div>
 </div>
 {% endif %}
 
@@ -424,6 +431,39 @@ async function playSound(soundId) {
         if (data.ok) showToast('🔊 ' + soundId.replace(/\.\w+$/, ''), 'success');
         else showToast(data.error || 'Sound failed', 'error');
     } catch (e) { showToast('Sound failed: ' + e.message, 'error'); }
+}
+
+async function uploadSound(input) {
+    if (!input.files || !input.files[0]) return;
+    const file = input.files[0];
+    const formData = new FormData();
+    formData.append('file', file);
+    try {
+        showToast('📤 Uploading ' + file.name + '...', 'success');
+        const res = await fetch('/api/sounds/upload', { method: 'POST', body: formData });
+        const data = await res.json();
+        if (data.ok) {
+            showToast('✅ Uploaded: ' + data.name, 'success');
+            setTimeout(() => location.reload(), 1500);
+        } else {
+            showToast(data.error || 'Upload failed', 'error');
+        }
+    } catch (e) { showToast('Upload failed: ' + e.message, 'error'); }
+    input.value = '';
+}
+
+async function deleteSound(soundId) {
+    if (!confirm('Delete sound: ' + soundId.replace(/\.\w+$/, '') + '?')) return;
+    try {
+        const res = await fetch('/api/sounds/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sound: soundId })
+        });
+        const data = await res.json();
+        if (data.ok) { showToast('Deleted sound', 'success'); setTimeout(() => location.reload(), 1000); }
+        else showToast(data.error || 'Delete failed', 'error');
+    } catch (e) { showToast('Delete failed: ' + e.message, 'error'); }
 }
 
 // ── Playback Controls ─────────────────────────────────────

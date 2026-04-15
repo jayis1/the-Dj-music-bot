@@ -301,6 +301,31 @@ def _pool(category: str) -> list[str]:
     return result
 
 
+def extract_sound_tags(text: str) -> tuple[str, list[str]]:
+    """
+    Extract {sound:name} tags from a DJ line.
+    Returns (cleaned_text, [sound_ids]).
+    e.g. "In the mix! {sound:airhorn} {sound:club_hit}" → ("In the mix!", ["airhorn", "club_hit"])
+    """
+    import re
+
+    tags = re.findall(r"\{sound:([^}]+)\}", text)
+    cleaned = re.sub(r"\s*\{sound:[^}]+\}\s*", " ", text).strip()
+    # Build the sound_id with the right extension
+    from utils.soundboard import list_sounds
+
+    available = {s["id"]: s["id"] for s in list_sounds()}
+    resolved = []
+    for tag in tags:
+        # Try exact match first (e.g. "airhorn" matches "airhorn.wav")
+        for sid in available:
+            base = os.path.splitext(sid)[0]
+            if base.lower() == tag.lower():
+                resolved.append(sid)
+                break
+    return cleaned, resolved
+
+
 def generate_intro(title: str, queue_size: int = 0) -> str:
     """Generate a DJ intro message before the first song of a session."""
     greeting = _time_greeting()
