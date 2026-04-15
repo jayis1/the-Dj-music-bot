@@ -295,3 +295,22 @@ Several MyInstants sounds are long (e.g. `airhorn.mp3` ~20s, `dj_turn_it_up.mp3`
 2. **Stop before play** — `voice_client.stop()` + `asyncio.sleep(0.1)` before each sound ensures clean transitions.
 3. **Shorter timeout** — Per-sound wait reduced from 10 → 5 seconds (safe since sounds cap at 3s).
 4. **Stale tag cleanup** — All `{sound:applause}` → `{sound:rave_cheer}` and `{sound:button_press}` → `{sound:uyuuui}` corrected after the `.wav` → `.mp3` library swap.
+
+---
+
+### Dashboard 500 Internal Server Error (Jinja `{% endif %}` Mismatch)
+
+**Root Cause:**
+When the DJ voice dropdown was migrated from `dashboard.html` to the new `/radio` page, an orphaned `{% endif %}` was left behind (line ~224). This tag had no matching `{% if %}`, causing Jinja to throw `Encountered unknown tag 'endif'` — it was still inside the `{% for g in guilds %}` loop and expected `{% endfor %}` or `{% else %}`, not `{% endif %}`.
+
+**The Fix:**
+Removed the orphaned `{% endif %}`. The corrected block structure in `dashboard.html`:
+| Block | Closed At |
+|---|---|
+| `{% if g.in_voice %}` | line ~97 |
+| `{% if g.current_song %}` | line ~165 |
+| `{% if g.queue_size > 0 %}` | line ~203 |
+| `{% if g.in_voice and g.listeners %}` | line ~222 |
+| `{% for g in guilds %}` | end of template |
+
+All 5 templates now parse cleanly: `dashboard.html` ✅ `radio.html` ✅ `base.html` ✅ `soundboard.html` ✅ `dj_lines.html` ✅
