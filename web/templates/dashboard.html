@@ -34,10 +34,8 @@
     </div>
     <!-- Upload + manage sounds -->
     <div style="margin-top: 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
-        <label class="btn" style="cursor: pointer; font-size: 12px;">
-            📤 Upload Sound
-            <input type="file" accept=".mp3,.wav,.ogg,.flac" onchange="uploadSound(this)" style="display:none;">
-        </label>
+        <input type="file" id="sound-upload-input" accept=".mp3,.wav,.ogg,.flac" onchange="uploadSound(this)" style="display:none;">
+        <button class="btn" style="font-size: 12px;" onclick="document.getElementById('sound-upload-input').click()">📤 Upload Sound</button>
         {% for s in sounds %}
         <button class="btn btn-icon btn-danger" style="font-size: 11px;" onclick="deleteSound('{{ s.id }}')" title="Delete {{ s.name }}">✕ {{ s.name }}</button>
         {% endfor %}
@@ -406,23 +404,30 @@ function showToast(msg, type) {
 }
 
 // ── Soundboard ────────────────────────────────────────────
-let soundboardGuild = null;
-document.addEventListener('DOMContentLoaded', () => {
-    // Pick the first guild with a voice connection for soundboard
+// Build a list of guild IDs where the bot is in a voice channel.
+// Use the first one for soundboard playback.
+const soundboardGuilds = [
     {% for g in guilds %}
-    {% if g.in_voice and soundboardGuild is none %}
-    soundboardGuild = '{{ g.id }}';
+    {% if g.in_voice %}
+    '{{ g.id }}',
     {% endif %}
     {% endfor %}
-});
+];
+
+function getSoundboardGuild() {
+    // Return the first guild where the bot is in voice.
+    // This is evaluated at call time so it's always current.
+    return soundboardGuilds.length > 0 ? soundboardGuilds[0] : null;
+}
 
 async function playSound(soundId) {
-    if (!soundboardGuild) {
+    const guildId = getSoundboardGuild();
+    if (!guildId) {
         showToast('Bot is not in any voice channel', 'error');
         return;
     }
     try {
-        const res = await fetch('/api/' + soundboardGuild + '/soundboard', {
+        const res = await fetch('/api/' + guildId + '/soundboard', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ sound: soundId })

@@ -37,6 +37,7 @@ from utils.custom_lines import (
 
 app = Flask(__name__)
 app.secret_key = "mbot-mission-control"
+app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024  # 16MB max upload
 
 # ── Bot state (set by bot.py at startup) ──────────────────────────
 bot = None
