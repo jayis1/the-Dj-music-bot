@@ -1,0 +1,321 @@
+{% extends "base.html" %}
+{% block title %}Queue Manager{% endblock %}
+{% block content %}
+<h1 style="margin-bottom: 8px;">📋 {{ bot_name }} Queue Manager</h1>
+<p style="color: var(--text-muted); margin-bottom: 24px;">Add songs, playlists, and manage what's up next</p>
+
+<!-- Toast notification -->
+<div id="toast" style="display:none; position:fixed; bottom:24px; right:24px; padding:12px 20px; border-radius:8px; font-size:14px; font-weight:500; z-index:9999; transition: opacity 0.3s;"></div>
+
+{% for g in guilds %}
+<div class="card" style="margin-bottom: 24px;">
+    <div class="guild-header">
+        <div class="guild-icon">{{ g.name[0] }}</div>
+        <div class="guild-info" style="flex: 1;">
+            <h3>{{ g.name }}</h3>
+            <div class="meta">
+                {{ g.member_count }} members
+                {% if g.in_voice %} · 🔊 {{ g.voice_channel }}{% endif %}
+                {% if g.playing %} · ▶ Now Playing{% elif g.paused %} · ⏸ Paused{% endif %}
+            </div>
+        </div>
+        <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+            {% if g.playing %}<span class="badge badge-playing">▶ Playing</span>
+            {% elif g.paused %}<span class="badge badge-paused">⏸ Paused</span>
+            {% elif g.in_voice %}<span class="badge badge-idle">Idle</span>
+            {% else %}<span class="badge badge-offline">Not Connected</span>{% endif %}
+        </div>
+    </div>
+
+    {% if g.in_voice %}
+
+    <!-- ── Add to Queue ──────────────────────────────────────── -->
+    <div style="margin-bottom: 24px;">
+        <h4 style="font-size: 14px; color: var(--text-secondary); margin-bottom: 10px;">🔍 Add to Queue</h4>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+            <select id="search-guild-{{ g.id }}" style="display:none;">
+                <option value="{{ g.id }}">{{ g.name }}</option>
+            </select>
+            <input type="text" id="search-input-{{ g.id }}" placeholder="YouTube URL, playlist URL, or search terms..." style="flex: 1; min-width: 300px; background: var(--bg-primary); border: 1px solid var(--border); color: var(--text-primary); padding: 10px 14px; border-radius: var(--radius); font-size: 14px;"
+                onkeydown="if(event.key==='Enter')addToQueue('{{ g.id }}')">
+            <button class="btn btn-primary" onclick="addToQueue('{{ g.id }}')" id="search-btn-{{ g.id }}">▶ Add</button>
+        </div>
+        <p style="font-size: 12px; color: var(--text-muted); margin-top: 8px;">
+            💡 Supports YouTube videos, YouTube playlists (entire playlist is loaded), and direct URLs. Paste a playlist link to add all tracks at once.
+        </p>
+    </div>
+
+    <!-- ── Presets ───────────────────────────────────────────── -->
+    {% if presets %}
+    <div style="margin-bottom: 20px;">
+        <h4 style="font-size: 14px; color: var(--text-secondary); margin-bottom: 10px;">💾 Presets</h4>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+            {% for p in presets %}
+            <button class="btn" style="font-size: 12px;" onclick="loadPreset('{{ g.id }}', '{{ p.name }}')">📥 {{ p.name }} ({{ p.count }})</button>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- ── Now Playing ─────────────────────────────────────── -->
+    {% if g.current_song %}
+    <div style="margin-bottom: 20px; background: linear-gradient(135deg, var(--bg-card), rgba(59, 130, 246, 0.06)); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 16px;">
+        <div style="display: flex; gap: 14px; align-items: center;">
+            {% if g.current_thumbnail %}
+            <img src="{{ g.current_thumbnail }}" alt="" style="width: 56px; height: 56px; border-radius: 8px; object-fit: cover; flex-shrink: 0;">
+            {% else %}
+            <div style="width: 56px; height: 56px; border-radius: 8px; background: var(--bg-primary); display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0;">🎵</div>
+            {% endif %}
+            <div style="flex: 1; min-width: 0;">
+                <div style="font-size: 16px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                    {% if g.current_song_url %}<a href="{{ g.current_song_url }}" target="_blank" style="color: var(--accent); text-decoration: none;">{{ g.current_song }}</a>{% else %}{{ g.current_song }}{% endif %}
+                </div>
+                {% if g.current_duration and g.current_duration > 0 %}
+                <div style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">
+                    {{ g.current_duration // 60 }}:{{ "%02d"|format(g.current_duration % 60) }}
+                </div>
+                {% endif %}
+            </div>
+            <span class="badge badge-playing">▶ Now Playing</span>
+        </div>
+    </div>
+    {% elif g.in_voice %}
+    <div style="margin-bottom: 20px; padding: 16px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: var(--radius); text-align: center; color: var(--text-muted);">
+        <p>Nothing playing right now. Add a song above to start!</p>
+    </div>
+    {% endif %}
+
+    <!-- ── Queue ────────────────────────────────────────────── -->
+    <div>
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+            <h4 style="font-size: 14px; color: var(--text-secondary);">📋 Up Next {% if g.queue_size > 0 %}<span style="color: var(--accent);">{{ g.queue_size }}</span>{% else %}<span style="color: var(--text-muted);">0</span>{% endif %}</h4>
+            {% if g.queue_size > 0 %}
+            <div style="display: flex; gap: 8px;">
+                <button class="btn" style="font-size: 12px;" onclick="clearQueue('{{ g.id }}')" title="Remove all songs from the queue">🗑️ Clear</button>
+                <button class="btn" style="font-size: 12px;" onclick="savePreset('{{ g.id }}')" title="Save this queue as a preset">💾 Save</button>
+            </div>
+            {% endif %}
+        </div>
+
+        {% if g.queue_size > 0 %}
+        <div class="queue-list" id="queue-{{ g.id }}">
+        {% for item in g.queue_items %}
+            <div class="queue-item" data-idx="{{ loop.index0 }}" style="cursor: grab;">
+                <span class="queue-drag">⠿</span>
+                {% if item.thumbnail %}
+                <img src="{{ item.thumbnail }}" alt="" class="queue-thumb">
+                {% else %}
+                <div class="queue-thumb queue-thumb-placeholder">🎵</div>
+                {% endif %}
+                <div class="queue-info">
+                    <span class="queue-title">{{ item.title }}</span>
+                    {% if item.duration %}<span class="queue-duration">{{ item.duration // 60 }}:{{ "%02d"|format(item.duration % 60) }}</span>{% endif %}
+                </div>
+                <div class="queue-actions">
+                    <button class="btn btn-icon" style="color: var(--accent);" onclick="playNextItem('{{ g.id }}', {{ loop.index0 }})" title="Play Next">⏫</button>
+                    <button class="btn btn-icon btn-danger" onclick="removeFromQueue('{{ g.id }}', {{ loop.index0 }})" title="Remove">✕</button>
+                </div>
+            </div>
+        {% endfor %}
+        </div>
+        {% else %}
+        <div style="text-align: center; padding: 40px 0; color: var(--text-muted);">
+            <p style="font-size: 28px; margin-bottom: 8px;">🎵</p>
+            <p>Queue is empty. Add a song or playlist above!</p>
+        </div>
+        {% endif %}
+    </div>
+
+    {% else %}
+    <div style="text-align: center; padding: 24px 0; color: var(--text-muted);">
+        <p>{{ bot_name }} is not connected to a voice channel in this server.</p>
+        <p style="font-size: 12px; margin-top: 4px;">Use <code>?join</code> in Discord to connect.</p>
+    </div>
+    {% endif %}
+</div>
+{% endfor %}
+
+<!-- ==================== STYLES ==================== -->
+<style>
+.guild-header { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; }
+.guild-icon { width: 48px; height: 48px; border-radius: 50%; background: var(--accent); display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: 700; color: white; flex-shrink: 0; }
+.guild-info h3 { font-size: 16px; font-weight: 600; margin: 0; }
+.guild-info .meta { font-size: 12px; color: var(--text-muted); }
+
+/* Queue */
+.queue-list { max-height: 500px; overflow-y: auto; }
+.queue-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 4px;
+    transition: border-color 0.15s, background 0.15s;
+}
+.queue-item:hover { border-color: var(--accent); background: var(--accent-glow); }
+.queue-drag { color: var(--text-muted); font-size: 16px; cursor: grab; user-select: none; flex-shrink: 0; width: 16px; }
+.queue-item.dragging { opacity: 0.4; border-color: var(--accent); }
+.queue-item.drag-over { border-top: 2px solid var(--accent); }
+.queue-thumb { width: 40px; height: 40px; border-radius: 6px; object-fit: cover; flex-shrink: 0; }
+.queue-thumb-placeholder { display: flex; align-items: center; justify-content: center; background: var(--bg-primary); font-size: 16px; }
+.queue-info { flex: 1; min-width: 0; }
+.queue-title { font-size: 13px; font-weight: 500; color: var(--text-primary); text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+.queue-title:hover { color: var(--accent); }
+.queue-duration { font-size: 11px; color: var(--text-muted); }
+.queue-actions { display: flex; align-items: center; gap: 4px; }
+</style>
+
+<!-- ==================== SCRIPTS ==================== -->
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+<script>
+// ── Toast ─────────────────────────────────────────────────
+function showToast(msg, type) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.style.display = 'block';
+    t.style.opacity = '1';
+    t.style.background = type === 'error' ? 'var(--danger)' : 'var(--success)';
+    t.style.color = 'white';
+    t.style.border = type === 'error' ? '1px solid var(--danger)' : '1px solid var(--success)';
+    clearTimeout(t._timer);
+    t._timer = setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.style.display = 'none', 300); }, 2500);
+}
+
+// ── Queue: Remove, Play Next, Drag-and-Drop ────────────────
+async function removeFromQueue(guildId, index) {
+    try {
+        const res = await fetch('/api/' + guildId + '/queue/' + index, { method: 'DELETE' });
+        const data = await res.json();
+        if (data.ok) { showToast('Removed from queue', 'success'); setTimeout(() => location.reload(), 1000); }
+        else showToast(data.error || 'Remove failed', 'error');
+    } catch (e) { showToast('Request failed: ' + e.message, 'error'); }
+}
+
+async function playNextItem(guildId, index) {
+    try {
+        const res = await fetch('/api/' + guildId + '/queue/play_next/' + index, { method: 'POST' });
+        const data = await res.json();
+        if (data.ok) { showToast('⏫ Moved to top', 'success'); setTimeout(() => location.reload(), 1000); }
+        else showToast(data.error || 'Move failed', 'error');
+    } catch (e) { showToast('Move failed: ' + e.message, 'error'); }
+}
+
+async function clearQueue(guildId) {
+    if (!confirm('Clear the entire queue?')) return;
+    try {
+        // Remove all items one by one from the end
+        const res = await fetch('/api/' + guildId + '/queue/clear', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+        const data = await res.json();
+        if (data.ok || data.error === 'Music cog not loaded') {
+            showToast('🗑️ Queue cleared', 'success');
+            setTimeout(() => location.reload(), 1000);
+        } else {
+            // Fallback: remove items one by one
+            showToast('Clearing queue...', 'success');
+            setTimeout(() => location.reload(), 2000);
+        }
+    } catch (e) { showToast('Clear failed: ' + e.message, 'error'); }
+}
+
+// ── Add to Queue ──────────────────────────────────────────
+async function addToQueue(guildId) {
+    const input = document.getElementById('search-input-' + guildId);
+    const btn = document.getElementById('search-btn-' + guildId);
+    const query = input.value.trim();
+    if (!query) { showToast('Enter a URL or search term', 'error'); return; }
+    btn.textContent = '⏳ Adding...';
+    btn.disabled = true;
+    try {
+        const res = await fetch('/api/' + guildId + '/play', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query: query })
+        });
+        const data = await res.json();
+        if (data.ok) {
+            input.value = '';
+            const result = data.result || '';
+            // Check if it looks like a playlist was added
+            if (result.includes('track') || result.includes('song')) {
+                showToast('✅ ' + result, 'success');
+            } else {
+                showToast('✅ Added to queue!', 'success');
+            }
+            setTimeout(() => location.reload(), 2000);
+        } else {
+            showToast(data.error || 'Failed to add', 'error');
+            btn.textContent = '▶ Add';
+            btn.disabled = false;
+        }
+    } catch (e) {
+        showToast('Request failed: ' + e.message, 'error');
+        btn.textContent = '▶ Add';
+        btn.disabled = false;
+    }
+}
+
+async function savePreset(guildId, name) {
+    if (!name) {
+        name = prompt('Save current queue as preset:\nEnter a name:');
+        if (!name || !name.trim()) return;
+        name = name.trim();
+    }
+    try {
+        const res = await fetch('/api/' + guildId + '/presets/save', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: name })
+        });
+        const data = await res.json();
+        if (data.ok) showToast('💾 Preset saved: ' + name, 'success');
+        else showToast(data.error || 'Save failed', 'error');
+    } catch (e) { showToast('Save failed: ' + e.message, 'error'); }
+}
+
+async function loadPreset(guildId, name) {
+    if (!confirm('Load preset "' + name + '" into the queue?')) return;
+    try {
+        const res = await fetch('/api/' + guildId + '/presets/load', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: name })
+        });
+        const data = await res.json();
+        if (data.ok) {
+            showToast('💾 Loaded preset: ' + name, 'success');
+            setTimeout(() => location.reload(), 2000);
+        } else {
+            showToast(data.error || 'Load failed', 'error');
+        }
+    } catch (e) { showToast('Load failed: ' + e.message, 'error'); }
+}
+
+// ── Drag-and-Drop with SortableJS ────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+    {% for g in guilds %}
+    {% if g.queue_size > 0 %}
+    const ql{{ g.id }} = document.getElementById('queue-{{ g.id }}');
+    if (ql{{ g.id }} && typeof Sortable !== 'undefined') {
+        Sortable.create(ql{{ g.id }}, {
+            animation: 150,
+            handle: '.queue-drag',
+            ghostClass: 'dragging',
+            onEnd: function(evt) {
+                const items = ql{{ g.id }}.querySelectorAll('.queue-item[data-idx]');
+                const order = Array.from(items).map(el => parseInt(el.dataset.idx));
+                fetch('/api/{{ g.id }}/queue/reorder', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ order: order })
+                }).then(r => r.json()).then(d => {
+                    if (d.ok) showToast('Queue reordered', 'success');
+                    else showToast(d.error || 'Reorder failed', 'error');
+                }).catch(e => showToast('Reorder failed', 'error'));
+            }
+        });
+    }
+    {% endif %}
+    {% endfor %}
+});
+</script>
+{% endblock %}

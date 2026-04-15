@@ -1398,18 +1398,20 @@ class Music(commands.Cog):
         if current_song_data:
             # Stop current playback
             ctx.voice_client.stop()
+            await asyncio.sleep(0.3)
 
-            # Dynamically create FFMPEG options with atempo filter
+            # Build FFmpeg options with atempo filter chain
+            # FFmpeg atempo only supports 0.5-2.0 per instance.
+            # For speeds below 0.5, chain multiple filters.
             player_options = FFMPEG_OPTIONS.copy()
             if new_speed != 1.0:
-                player_options["options"] += f' -filter:a "atempo={new_speed}"'
+                atempo_filters = self._build_atempo_chain(new_speed)
+                player_options["options"] += f' -filter:a "{"+".join(atempo_filters)}"'
 
             # Create and play the new player with the updated speed
             source = discord.FFmpegPCMAudio(current_song_data.url, **player_options)
             player = discord.PCMVolumeTransformer(source)
-            player.volume = self.current_volume.get(
-                guild_id, 1.0
-            )  # Apply stored volume
+            player.volume = self.current_volume.get(guild_id, 1.0)
             ctx.voice_client.play(
                 player,
                 after=lambda e: self.bot.loop.create_task(self._after_playback(ctx, e)),
@@ -1435,6 +1437,25 @@ class Music(commands.Cog):
                     discord.Color.red(),
                 )
             )
+
+    @staticmethod
+    def _build_atempo_chain(speed):
+        """Build an FFmpeg atempo filter chain for any speed value.
+
+        FFmpeg's atempo filter only supports 0.5-2.0 per instance.
+        For speeds outside that range, chain multiple atempo filters.
+        E.g. 0.25x = atempo=0.5,atempo=0.5
+        """
+        filters = []
+        remaining = speed
+        while remaining < 0.5:
+            filters.append("atempo=0.5")
+            remaining /= 0.5
+        while remaining > 2.0:
+            filters.append("atempo=2.0")
+            remaining /= 2.0
+        filters.append(f"atempo={remaining}")
+        return filters
 
     @commands.command(name="speedhigher")
     async def speedhigher(self, ctx):
@@ -1769,10 +1790,11 @@ class Music(commands.Cog):
                 continue
 
             try:
-                # Cap sound duration at MAX_SOUND_SECONDS using FFmpeg -t flag.
-                # This prevents 20-second airhorn blasts from blocking the next song.
-                # DJ sound effects should be short stingers, not full soundscapes.
-                max_sec = getattr(config, "MAX_SOUND_SECONDS", 3)
+                # Cap sound duration via FFmpeg -t flag.
+                # DJ lines can have longer sounds (up to 10s) since they're
+                # supposed to be brief stingers that play before the song starts.
+                # The soundboard web UI uses the shorter MAX_SOUND_SECONDS (8s).
+                max_sec = min(getattr(config, "MAX_SOUND_SECONDS", 8) + 2, 10)
                 ffmpeg_options = f"-vn -t {max_sec}"
                 source = discord.FFmpegPCMAudio(
                     path,
@@ -1800,9 +1822,9 @@ class Music(commands.Cog):
                     f"DJ: Playing sound effect '{sound_id}' in guild {guild_id}"
                 )
 
-                # Wait up to 5s for the sound to finish (sounds are capped at 3s + margin)
+                # Wait up to 12s for the sound to finish (sounds capped at 10s + margin)
                 try:
-                    await asyncio.wait_for(finished.wait(), timeout=5)
+                    await asyncio.wait_for(finished.wait(), timeout=12)
                 except asyncio.TimeoutError:
                     logging.warning(
                         f"DJ: Sound '{sound_id}' timed out (may have been stopped)"
@@ -1879,9 +1901,9 @@ class Music(commands.Cog):
             # Build FFmpeg audio filter chain
             audio_filters = []
 
-            # Speed filter
+            # Speed filter (chain atempo for sub-0.5 and super-2.0 speeds)
             if current_speed != 1.0:
-                audio_filters.append(f"atempo={current_speed}")
+                audio_filters.extend(self._build_atempo_chain(current_speed))
 
             # Crossfade: fade in the first few seconds of a new song
             crossfade = getattr(config, "CROSSFADE_DURATION", 0)

@@ -56,7 +56,9 @@ DJ_BED_MUSIC_ENABLED = True
 # Sounds longer than this are truncated via FFmpeg to prevent blocking
 # the next song. Discord.py raises "already playing" if a long sound
 # overlaps with song playback.
-MAX_SOUND_SECONDS = 3
+# 8 seconds is the soft cap (normal sounds), 10 is the hard cap (a
+# few longer effects are acceptable).
+MAX_SOUND_SECONDS = 8
 
 # Web Dashboard
 WEB_HOST = os.environ.get("WEB_HOST", "0.0.0.0")

@@ -12,10 +12,7 @@
         <div class="status-dot {% if bot_user != 'Not connected' %}{% else %}offline{% endif %}"></div>
         <span>{{ bot_user }}</span>
     </div>
-    <div style="display: flex; align-items: center; gap: 16px;">
-        <span style="color: var(--text-muted); font-size: 13px;">{{ guild_count }} server{{ 's' if guild_count != 1 else '' }}</span>
-        <a href="{{ url_for('radio') }}" class="btn">📻 Radio</a>
-    </div>
+    <span style="color: var(--text-muted); font-size: 13px;">{{ guild_count }} server{{ 's' if guild_count != 1 else '' }}</span>
 </div>
 
 <!-- ==================== GUILD CARDS ==================== -->
@@ -170,8 +167,7 @@
         <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
             <h4 style="font-size: 14px; color: var(--text-secondary);">📋 Up Next ({{ g.queue_size }}{% if g.queue_duration and g.queue_duration > 0 %} · {{ (g.queue_duration // 3600) }}h {{ ((g.queue_duration % 3600) // 60) }}m{% endif %})</h4>
             <div style="display: flex; gap: 4px;">
-                <!-- Save as preset button -->
-                <button class="btn" style="font-size: 11px;" onclick="savePreset('{{ g.id }}')">💾 Save</button>
+                <a href="{{ url_for('queue_manager') }}" class="btn" style="font-size: 11px;">📋 Manage</a>
             </div>
         </div>
         <div class="queue-list" id="queue-{{ g.id }}">
@@ -223,32 +219,6 @@
 </div>
 {% endfor %}
 
-<!-- ==================== SEARCH / ADD TO QUEUE ==================== -->
-<div class="card" style="margin-top: 24px;">
-    <h2 style="margin-bottom: 16px;">🔍 Add to Queue</h2>
-    <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-        <select id="search-guild" style="background: var(--bg-card); border: 1px solid var(--border); color: var(--text-primary); padding: 8px 12px; border-radius: var(--radius); font-size: 13px; min-width: 160px;">
-            {% for g in guilds %}
-            {% if g.in_voice %}
-            <option value="{{ g.id }}">{{ g.name }}</option>
-            {% endif %}
-            {% endfor %}
-        </select>
-        <input type="text" id="search-input" placeholder="YouTube URL, playlist URL, or search terms..." style="flex: 1; min-width: 300px; background: var(--bg-card); border: 1px solid var(--border); color: var(--text-primary); padding: 8px 12px; border-radius: var(--radius); font-size: 13px;">
-        <button class="btn btn-primary" onclick="addToQueue()" id="search-btn">▶ Play</button>
-    </div>
-
-    <!-- Presets dropdown -->
-    {% if presets %}
-    <div style="margin-top: 16px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
-        <span style="font-size: 12px; color: var(--text-muted);">💾 Presets:</span>
-        {% for p in presets %}
-        <span class="preset-chip" onclick="loadPreset('{{ p.name }}')">{{ p.name }} ({{ p.count }})</span>
-        {% endfor %}
-    </div>
-    {% endif %}
-</div>
-
 <p style="color: var(--text-muted); font-size: 12px; margin-top: 24px; text-align: center;">
     Auto-refreshes every 30 seconds ·
     <a href="{{ url_for('dashboard') }}">Refresh now</a>
@@ -271,36 +241,6 @@
 }
 .queue-item.drag-over {
     border-top: 2px solid var(--accent);
-}
-
-/* Preset chips */
-.preset-chip {
-    display: inline-block;
-    background: var(--bg-primary);
-    border: 1px solid var(--border);
-    color: var(--text-secondary);
-    padding: 4px 12px;
-    border-radius: 16px;
-    font-size: 12px;
-    cursor: pointer;
-    transition: all 0.15s;
-}
-.preset-chip:hover {
-    border-color: var(--accent);
-    color: var(--accent);
-    background: var(--accent-glow);
-}
-
-/* Voice select */
-.voice-select {
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    color: var(--text-primary);
-    padding: 4px 8px;
-    border-radius: var(--radius);
-    font-size: 12px;
-    margin-left: 8px;
-    min-width: 200px;
 }
 
 /* Sliders */
@@ -331,7 +271,7 @@
 }
 
 /* Queue */
-.queue-list { max-height: 400px; overflow-y: auto; }
+.queue-list { max-height: 220px; overflow-y: auto; }
 .queue-item {
     display: flex;
     align-items: center;
@@ -459,14 +399,28 @@ async function setVolume(guildId, value) {
 }
 
 async function setSpeed(guildId, value) {
+    const label = document.getElementById('spd-label-' + guildId);
+    const origLabel = label ? label.textContent : '';
+    if (label) label.textContent = value + 'x ⏳';
     try {
-        await fetch('/api/' + guildId + '/speed', {
+        const res = await fetch('/api/' + guildId + '/speed', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ speed: value })
         });
-        showToast('Speed: ' + value + 'x', 'success');
-    } catch (e) { showToast('Speed failed', 'error'); }
+        const data = await res.json();
+        if (data.ok) {
+            const note = data.note ? ' (' + data.note + ')' : '';
+            showToast('⏩ Speed: ' + data.speed + 'x' + note, 'success');
+            if (label) label.textContent = data.speed + 'x';
+        } else {
+            showToast(data.error || 'Speed change failed', 'error');
+            if (label) label.textContent = origLabel;
+        }
+    } catch (e) {
+        showToast('Speed failed: ' + e.message, 'error');
+        if (label) label.textContent = origLabel;
+    }
 }
 
 async function toggleDj(btn, guildId) {
@@ -584,80 +538,6 @@ function toggleLyrics(guildId) {
         panel.style.display = 'none';
     }
 }
-
-// ── Presets ────────────────────────────────────────────────
-async function savePreset(guildId) {
-    const name = prompt('Save current queue as preset:\nEnter a name:');
-    if (!name || !name.trim()) return;
-    try {
-        const res = await fetch('/api/' + guildId + '/presets/save', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name: name.trim() })
-        });
-        const data = await res.json();
-        if (data.ok) showToast('💾 Preset saved: ' + name.trim(), 'success');
-        else showToast(data.error || 'Save failed', 'error');
-    } catch (e) { showToast('Save failed: ' + e.message, 'error'); }
-}
-
-async function loadPreset(name) {
-    const guildSelect = document.getElementById('search-guild');
-    const guildId = guildSelect ? guildSelect.value : null;
-    if (!guildId) { showToast('Bot is not in any voice channel', 'error'); return; }
-    if (!confirm('Load preset "' + name + '" into the queue?')) return;
-    try {
-        const res = await fetch('/api/' + guildId + '/presets/load', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name: name })
-        });
-        const data = await res.json();
-        if (data.ok) {
-            showToast('💾 Loaded preset: ' + name, 'success');
-            setTimeout(() => location.reload(), 2000);
-        } else {
-            showToast(data.error || 'Load failed', 'error');
-        }
-    } catch (e) { showToast('Load failed: ' + e.message, 'error'); }
-}
-
-// ── Search / Add to Queue ─────────────────────────────────
-async function addToQueue() {
-    const guildSelect = document.getElementById('search-guild');
-    const guildId = guildSelect.value;
-    const query = document.getElementById('search-input').value.trim();
-    if (!query) { showToast('Enter a URL or search term', 'error'); return; }
-    if (!guildId) { showToast('Bot is not in any voice channel', 'error'); return; }
-    const btn = document.getElementById('search-btn');
-    btn.textContent = '⏳ Adding...';
-    btn.disabled = true;
-    try {
-        const res = await fetch('/api/' + guildId + '/play', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ query: query })
-        });
-        const data = await res.json();
-        if (data.ok) {
-            document.getElementById('search-input').value = '';
-            showToast('Added to queue!', 'success');
-            setTimeout(() => location.reload(), 2000);
-        } else {
-            showToast(data.error || 'Failed to add', 'error');
-            btn.textContent = '▶ Play';
-            btn.disabled = false;
-        }
-    } catch (e) {
-        showToast('Request failed: ' + e.message, 'error');
-        btn.textContent = '▶ Play';
-        btn.disabled = false;
-    }
-}
-
-document.getElementById('search-input')?.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') addToQueue();
-});
 
 // ── Live Progress Bar Ticker ──────────────────────────────────
 // Each guild card gets a live timer that ticks the progress bar forward

@@ -18,6 +18,8 @@ import re
 import time
 import urllib.parse
 
+import config
+
 from flask import (
     Flask,
     flash,
@@ -113,6 +115,25 @@ def _run_async(coro):
         return None
 
 
+def _build_atempo_chain(speed):
+    """Build an FFmpeg atempo filter chain for any speed value.
+
+    FFmpeg's atempo filter only supports 0.5-2.0 per instance.
+    For speeds outside that range, we chain multiple atempo filters.
+    E.g. 0.25x = atempo=0.5,atempo=0.5
+    """
+    filters = []
+    remaining = speed
+    while remaining < 0.5:
+        filters.append("atempo=0.5")
+        remaining /= 0.5  # each 0.5 halves the speed
+    while remaining > 2.0:
+        filters.append("atempo=2.0")
+        remaining /= 2.0  # each 2.0 doubles the speed
+    filters.append(f"atempo={remaining}")
+    return filters
+
+
 # ── Dashboard ────────────────────────────────────────────────────
 
 
@@ -134,9 +155,9 @@ def dashboard():
                 q = music.song_queues.get(guild_id)
                 if q:
                     queue_size = q.qsize()
-                    # Peek at up to 50 items without consuming them
+                    # Show only 5 items in the compact queue view
                     try:
-                        queue_items = list(q._queue)[:50]
+                        queue_items = list(q._queue)[:5]
                     except Exception:
                         queue_items = []
 
@@ -291,6 +312,86 @@ def radio():
     )
 
 
+# ── Queue Manager Page ──────────────────────────────────────────────
+
+
+@app.route("/queue-manager")
+def queue_manager():
+    """Queue manager page — add songs/playlists, view and manage the queue."""
+    music = _get_music_cog()
+    guilds_data = []
+
+    if bot and bot.guilds:
+        for guild in bot.guilds:
+            guild_id = guild.id
+            voice = guild.voice_client
+            current = None
+            queue_items = []
+            queue_size = 0
+
+            if music:
+                current = music.current_song.get(guild_id)
+                q = music.song_queues.get(guild_id)
+                if q:
+                    queue_size = q.qsize()
+                    try:
+                        queue_items = list(q._queue)  # Show all items
+                    except Exception:
+                        queue_items = []
+
+            guilds_data.append(
+                {
+                    "id": guild_id,
+                    "name": guild.name,
+                    "member_count": guild.member_count,
+                    "in_voice": voice is not None,
+                    "voice_channel": voice.channel.name if voice else None,
+                    "playing": voice.is_playing() if voice else False,
+                    "paused": voice.is_paused() if voice else False,
+                    "current_song": current.title if current else None,
+                    "current_song_url": current.webpage_url if current else None,
+                    "current_thumbnail": current.thumbnail if current else None,
+                    "current_duration": current.duration if current else None,
+                    "queue_size": queue_size,
+                    "queue_items": [
+                        {
+                            "title": item.title,
+                            "url": getattr(item, "webpage_url", None),
+                            "thumbnail": getattr(item, "thumbnail", None),
+                            "duration": getattr(item, "duration", None),
+                        }
+                        for item in queue_items
+                    ],
+                    "dj_enabled": music.dj_enabled.get(guild_id, False)
+                    if music
+                    else False,
+                    "dj_voice": music.dj_voice.get(guild_id, "") if music else "",
+                    "volume": int(music.current_volume.get(guild_id, 1.0) * 100)
+                    if music
+                    else 100,
+                    "looping": music.looping.get(guild_id, False) if music else False,
+                    "speed": music.playback_speed.get(guild_id, 1.0) if music else 1.0,
+                    "autodj_enabled": music.autodj_enabled.get(guild_id, False)
+                    if music
+                    else False,
+                    "autodj_source": music.autodj_source.get(guild_id, "")
+                    if music
+                    else "",
+                }
+            )
+
+    from utils.presets import list_presets as list_presets_fn
+
+    return render_template(
+        "queue_manager.html",
+        guilds=guilds_data,
+        presets=list_presets_fn(),
+        bot_user=str(bot.user) if bot else "Not connected",
+        bot_avatar=bot.user.display_avatar.url if bot and bot.user else None,
+        guild_count=len(bot.guilds) if bot else 0,
+    )
+
+
 # ── API Endpoints (called via JavaScript from dashboard) ─────────
 
 
@@ -362,6 +463,7 @@ def api_volume(guild_id):
 
 @app.route("/api/<int:guild_id>/speed", methods=["POST"])
 def api_speed(guild_id):
+    """Set playback speed. Restarts the current song with the new atempo filter."""
     music = _get_music_cog()
     if not music:
         return jsonify({"error": "Music cog not loaded"}), 503
@@ -373,8 +475,52 @@ def api_speed(guild_id):
         return jsonify({"error": "Invalid speed"}), 400
     # Snap to nearest step
     speed = min(speed_steps, key=lambda s: abs(s - speed))
+
+    # Save the speed regardless — this way it applies to the next song even if
+    # nothing is playing right now
     music.playback_speed[guild_id] = speed
-    return jsonify({"ok": True, "speed": speed})
+
+    guild = bot.get_guild(guild_id) if bot else None
+    if not guild or not guild.voice_client or not guild.voice_client.is_playing():
+        return jsonify({"ok": True, "speed": speed, "note": "saved for next song"})
+
+    current_song = music.current_song.get(guild_id)
+    if not current_song or not current_song.url:
+        return jsonify({"ok": True, "speed": speed, "note": "saved for next song"})
+
+    # Restart the song with the new speed via the bot's event loop
+    async def _apply_speed():
+        try:
+            guild.voice_client.stop()
+            await asyncio.sleep(0.3)
+
+            from cogs.youtube import FFMPEG_OPTIONS
+            import discord
+
+            player_options = FFMPEG_OPTIONS.copy()
+            if speed != 1.0:
+                atempo_filters = _build_atempo_chain(speed)
+                player_options["options"] += f' -filter:a "{"+".join(atempo_filters)}"'
+
+            source = discord.FFmpegPCMAudio(current_song.url, **player_options)
+            player = discord.PCMVolumeTransformer(source)
+            player.volume = music.current_volume.get(guild_id, 1.0)
+            guild.voice_client.play(player)
+            music.song_start_time[guild_id] = time.time()
+            logging.info(
+                f"Speed API: Restarted playback at {speed}x for guild {guild_id}"
+            )
+            return True
+        except Exception as e:
+            logging.error(f"Speed API: Failed to restart playback: {e}")
+            return False
+
+    result = _run_async(_apply_speed())
+    if result:
+        return jsonify({"ok": True, "speed": speed})
+    return jsonify(
+        {"ok": True, "speed": speed, "note": "speed saved, restart may have failed"}
+    )
 
 
 @app.route("/api/<int:guild_id>/dj_toggle", methods=["POST"])
@@ -495,9 +641,8 @@ def api_play(guild_id):
             await queue.put(track)
             count = 1
         elif "playlist" in query or "list=" in query:
-            tracks = await PlaceholderTrack.from_playlist_url(
-                query, loop=bot.loop, playlist_items="1-25"
-            )
+            # No playlist_items limit — load the entire playlist
+            tracks = await PlaceholderTrack.from_playlist_url(query, loop=bot.loop)
             for t in tracks:
                 await queue.put(t)
             count = len(tracks)
@@ -724,9 +869,8 @@ def api_sounds_delete():
 def api_soundboard(guild_id):
     """Play a sound effect in a guild's voice channel.
 
-    Sounds are capped at 3 seconds to prevent long effects from
-    blocking subsequent audio (discord.py raises "already playing"
-    if a new source is played while one is still going).
+    Sounds are capped at MAX_SOUND_SECONDS (default 8s) to prevent long
+    effects from blocking subsequent audio. DJ line sounds can go up to 10s.
     """
     data = request.json or request.form
     sound_id = data.get("sound", "").strip()
@@ -762,7 +906,7 @@ def api_soundboard(guild_id):
             source = discord.FFmpegPCMAudio(
                 path,
                 before_options="-nostdin",
-                options="-vn -t 3",  # Cap at 3 seconds max
+                options=f"-vn -t {getattr(config, 'MAX_SOUND_SECONDS', 8)}",  # Soft cap
             )
             guild.voice_client.play(source)
             return True
@@ -883,6 +1027,25 @@ def api_listeners(guild_id):
 
 
 # ── Queue Reorder & Play Next ──────────────────────────────────────
+
+
+@app.route("/api/<int:guild_id>/queue/clear", methods=["POST"])
+def api_queue_clear(guild_id):
+    """Clear the entire queue."""
+    music = _get_music_cog()
+    if not music:
+        return jsonify({"error": "Music cog not loaded"}), 503
+    queue = asyncio.run_coroutine_threadsafe(
+        music.get_queue(guild_id), bot.loop
+    ).result(timeout=5)
+    size = queue.qsize()
+    # Drain the queue
+    while not queue.empty():
+        try:
+            queue.get_nowait()
+        except asyncio.QueueEmpty:
+            break
+    return jsonify({"ok": True, "cleared": size})
 
 
 @app.route("/api/<int:guild_id>/queue/reorder", methods=["POST"])

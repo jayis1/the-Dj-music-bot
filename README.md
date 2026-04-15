@@ -44,7 +44,7 @@ The radio dj music bot features a built-in web dashboard (powered by Flask) that
 **Dashboard Features:**
 - **Live Status & Remote Control:** The dashboard isn't just for viewing! You can skip, pause, play, or stop the currently playing song directly from your browser.
 - **Interactive UI & Toast Notifications:** Enjoy smooth real-time feedback with loading spinners and stylish pop-up notifications whenever you trigger actions!
-- **Audio Sliders:** Adjust the bot's volume and playback speed smoothly on the fly.
+- **Audio Sliders:** Adjust the bot's volume and playback speed on the fly. Speed changes **immediately** restart the currently playing song at the new rate — no waiting for the next track. Supports 0.25×–4.0× via a proper `atempo` FFmpeg filter chain.
 - **Drag-and-Drop Queue Reordering:** Rearrange the upcoming songs effortlessly by dragging and dropping them, or use the "Play Next" shortcut to move them straight to the top of the queue.
 - **🕰️ Recently Played:** See the last 30 tracks with album art and timestamps. Hit 🔁 Replay to instantly re-queue any of them.
 - **🔁 Auto-DJ / Radio Autoplay:** When the queue empties, the bot automatically refills it from a YouTube playlist URL, a saved preset (`preset:Name`), or randomly from your recently played history.
@@ -53,6 +53,7 @@ The radio dj music bot features a built-in web dashboard (powered by Flask) that
 - **📊 Live Audio Visualizer:** A 48-bar animated frequency canvas that pulses while music plays. Toggle it on/off anytime.
 - **⏱️ Live Song Progress Bar:** A gradient-filled progress bar with a real-time JavaScript ticker that updates every second (respecting playback speed). Shows elapsed/total time (e.g. `1:23 / 3:45`). Unknown-duration songs get a smooth pulsing animation instead.
 - **📋 Queue & Session Duration:** The queue header shows total remaining playtime. Below the progress bar, a summary displays queue total and session total (current song + queue) so you always know how long the party lasts.
+- **📋 Queue Manager Page (`/queue`):** A dedicated sidebar page for adding songs and managing the queue. Supports YouTube videos, full playlists (no track limit), and direct URLs. Features drag-and-drop reorder (SortableJS), Play Next shortcuts, per-track remove, one-click Clear Queue, and the full Presets panel.
 - **Web-based "Add to Queue":** A built-in search bar allows you to paste YouTube links or search queries directly from the dashboard to instantly queue songs.
 - **Live Lyrics Panel:** Automatically fetches and displays lyrics for the currently playing track via `syncedlyrics`.
 - **Save / Load Custom Playlists (Presets):** Save your perfectly crafted queues directly into a preset JSON, and reload them with one click later.
@@ -314,3 +315,48 @@ Removed the orphaned `{% endif %}`. The corrected block structure in `dashboard.
 | `{% for g in guilds %}` | end of template |
 
 All 5 templates now parse cleanly: `dashboard.html` ✅ `radio.html` ✅ `base.html` ✅ `soundboard.html` ✅ `dj_lines.html` ✅
+
+---
+
+### Speed Slider Live-Apply Fix
+
+**Root Cause:**
+The `/api/speed` endpoint saved `playback_speed` to a dict but never restarted the FFmpeg audio source. The new speed only took effect on the next song.
+
+**Fix:**
+The endpoint now calls `_apply_speed()` if audio is playing:
+1. Stops the current voice client playback
+2. Rebuilds FFmpeg options with the new `atempo` filter
+3. Starts a fresh `PCMVolumeTransformer` source
+4. Resets `song_start_time` for accurate progress bar tracking
+
+If nothing is playing it returns `{"note": "saved for next song"}`.
+
+---
+
+### FFmpeg `atempo` Full-Range Filter Chain (0.25×–4.0×)
+
+**Root Cause:**
+FFmpeg's `atempo` filter only accepts values between `0.5` and `2.0` per instance. Using `atempo=0.25` directly caused FFmpeg to error out.
+
+**Fix — `_build_atempo_chain(speed)`:**
+A static helper chains multiple `atempo` filters to cover any speed:
+| Speed | Filter chain |
+|---|---|
+| 0.25× | `atempo=0.5,atempo=0.5` |
+| 0.5× | `atempo=0.5` |
+| 1.0× | `atempo=1.0` |
+| 2.0× | `atempo=2.0` |
+| 4.0× | `atempo=2.0,atempo=2.0` |
+
+Applied to `_set_speed`, `_start_song_playback`, and the web API endpoint.
+
+---
+
+### Sound Duration Cap Updated (3s → 8s / 10s)
+
+The 3-second cap was too aggressive for longer DJ effects. Updated in `config.py`:
+- `MAX_SOUND_SECONDS = 8` (was 3)
+- **Soundboard endpoint** (`app.py`): FFmpeg `-t 8` cap
+- **DJ sound playback** (`music.py`): FFmpeg `-t 10` cap (`MAX_SOUND_SECONDS + 2`)
+- **Sound wait timeout**: 12s (was 5s) to match the 10s maximum
