@@ -1731,7 +1731,7 @@ class Music(commands.Cog):
                 audio_filters.append(f"afade=t=in:st=0:d={crossfade}")
 
             if audio_filters:
-                player_options["options"] += f' -filter:a "{"+".join(audio_filters)}'
+                player_options["options"] += f' -filter:a "{"+".join(audio_filters)}"'
 
             source = discord.FFmpegPCMAudio(data.url, **player_options)
             player = discord.PCMVolumeTransformer(source)

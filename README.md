@@ -173,3 +173,34 @@ If you run into issues with the interactive wizard (`start.sh`), or prefer to do
 
 ## 📚 Further Documentation
 For detailed insights regarding architecture, cog layout, creating your own modules, or managing yt-dlp cached metadata, please refer directly to the comprehensive [GUIDE.md](GUIDE.md).
+
+---
+
+## 🐛 Developer Notes & Recent Fixes
+
+### FFmpeg Filter Configuration Fix
+During the rollout of the crossfade feature, an issue occurred where music playback failed (though DJ intros played fine).
+
+**Root Cause:**
+The crossfade feature had a missing closing quote in the FFmpeg filter string:
+```python
+# Before (broken):
+player_options["options"] += f' -filter:a "{"+".join(audio_filters)}'
+```
+This resulted in FFmpeg receiving `-filter:a "atempo=1.5+afade=t=in:st=0:d=3` without the closing quotation mark, throwing a "No closing quotation" error and immediately terminating playback. 
+
+**The Fix:**
+A closing quote was properly appended:
+```python
+# After (fixed):
+player_options["options"] += f' -filter:a "{"+".join(audio_filters)}"'
+```
+
+All combining filter scenarios have been verified to produce the correct FFmpeg arguments:
+| Scenario | FFmpeg options | Status |
+|---|---|---|
+| No speed change, no crossfade | `-vn` (no filter added) | ✅ |
+| Speed 1.5x only | `-vn -filter:a "atempo=1.5"` | ✅ |
+| Crossfade 3s only | `-vn -filter:a "afade=t=in:st=0:d=3"` | ✅ |
+| Speed 1.5x + crossfade | `-vn -filter:a "atempo=1.5+afade=t=in:st=0:d=3"` | ✅ |
+| Speed 0.75x + crossfade 5s | `-vn -filter:a "atempo=0.75+afade=t=in:st=0:d=5"` | ✅ |
